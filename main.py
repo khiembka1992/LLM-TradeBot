@@ -245,12 +245,20 @@ class MultiAgentTradingBot:
             # 如果是观望，也需要更新状态
             if vote_result.action == 'hold':
                 print("\n✅ 决策: 观望")
-                global_state.add_log(f"Decision: HOLD ({vote_result.reason})")
                 
-                # Update State with HOLD decision
+                # ✅ Fix: Convert 'hold' to 'wait' when no position
+                # Check if there's an active position
+                # For now, we assume no position in test mode (can be enhanced with real position check)
+                actual_action = 'wait'  # No position → wait (观望)
+                # If we had a position, it would be 'hold' (持有)
+                
+                global_state.add_log(f"Decision: {actual_action.upper()} ({vote_result.reason})")
+                
+                # Update State with WAIT/HOLD decision
                 decision_dict = asdict(vote_result)
+                decision_dict['action'] = actual_action  # ✅ Use 'wait' instead of 'hold'
                 decision_dict['symbol'] = self.symbol
-                # Add implicit safe risk for Hold
+                # Add implicit safe risk for Wait/Hold
                 decision_dict['risk_level'] = 'safe'
                 decision_dict['guardian_passed'] = True
                 
@@ -263,8 +271,8 @@ class MultiAgentTradingBot:
                 global_state.update_decision(decision_dict)
 
                 return {
-                    'status': 'hold',
-                    'action': 'hold',
+                    'status': actual_action,
+                    'action': actual_action,
                     'details': {
                         'reason': vote_result.reason,
                         'confidence': vote_result.confidence

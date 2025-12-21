@@ -66,6 +66,12 @@ function updateDashboard() {
 
             // New Renderers
             if (data.account) renderAccount(data.account);
+            if (data.account) {
+                // TODO: API should return positions array
+                // For now, create mock data if no positions available
+                const positions = data.positions || [];
+                updatePositionInfo(data.account, positions);
+            }
             if (data.chart_data && data.chart_data.equity) renderChart(data.chart_data.equity);
 
             // Layout v2 Renderers
@@ -280,6 +286,49 @@ function renderChart(history) {
     equityChart.update('none'); // Update without full re-animation for smoothness
 }
 
+function updatePositionInfo(account, positions = []) {
+    const fmt = num => `$${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+    // Update position count
+    const countEl = document.getElementById('position-count');
+    if (countEl) {
+        const posCount = positions.length || 0;
+        countEl.textContent = `📊 Positions: ${posCount}`;
+    }
+
+    // Update position details
+    const detailsEl = document.getElementById('position-details');
+    if (detailsEl) {
+        if (positions && positions.length > 0) {
+            detailsEl.innerHTML = positions.map(pos => {
+                const pnlClass = pos.pnl > 0 ? 'pos' : (pos.pnl < 0 ? 'neg' : 'neutral');
+                return `
+                    <div style="display: flex; align-items: center; gap: 8px; padding: 4px 10px; background: rgba(255,255,255,0.05); border-radius: 4px;">
+                        <span style="color: #e0e6ed; font-weight: 600;">${pos.symbol}</span>
+                        <span style="color: #a0aec0; font-size: 0.8em;">${pos.quantity}</span>
+                        <span class="val ${pnlClass}" style="font-size: 0.85em;">${fmt(pos.pnl)}</span>
+                    </div>
+        `;
+            }).join('');
+        } else {
+            detailsEl.innerHTML = '<span style="color: #718096; font-size: 0.8em;">No open positions</span>';
+        }
+    }
+
+    // Update total PnL with color
+    const pnlEl = document.getElementById('position-pnl');
+    if (pnlEl) {
+        pnlEl.textContent = `Total PnL: ${fmt(account.total_pnl)}`;
+        if (account.total_pnl > 0) {
+            pnlEl.className = 'val pos';
+        } else if (account.total_pnl < 0) {
+            pnlEl.className = 'val neg';
+        } else {
+            pnlEl.className = 'val neutral';
+        }
+    }
+}
+
 // ... (renderSystemStatus and others remain same)
 
 // Init
@@ -291,6 +340,20 @@ updateDashboard();
 document.getElementById('btn-start').addEventListener('click', () => sendControl('start'));
 document.getElementById('btn-pause').addEventListener('click', () => sendControl('pause'));
 document.getElementById('btn-stop').addEventListener('click', () => sendControl('stop'));
+
+// Symbol Selector
+const symbolSelector = document.getElementById('symbol-selector');
+if (symbolSelector) {
+    symbolSelector.addEventListener('change', (e) => {
+        const newSymbol = e.target.value;
+        console.log('Symbol changed to:', newSymbol);
+        // Note: Backend currently only supports BTCUSDT
+        // This is a UI placeholder for future multi-symbol support
+        alert(`Symbol switching to ${newSymbol} - Feature coming soon!\nCurrently only BTCUSDT is supported.`);
+        // Reset to BTCUSDT
+        e.target.value = 'BTCUSDT';
+    });
+}
 
 function sendControl(action) {
     fetch('/api/control', {

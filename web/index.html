@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LLM-TradeBot Dashboard</title>
-    <link rel="stylesheet" href="/static/style.css?v=15">
+    <link rel="stylesheet" href="/static/style.css?v=21">
     <link
         href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600&display=swap"
         rel="stylesheet">
@@ -45,10 +45,21 @@
 
             <!-- Row 1: K-Line + Net Value -->
             <section class="row-charts">
-                <!-- K-Line -->
+                <!-- K-Line Chart -->
                 <div class="glass-panel card kline-card">
                     <div class="chart-header">
-                        <h2>📉 BTCUSDT Real-time K-Line</h2>
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <h2 style="margin: 0;">📉 Real-time K-Line</h2>
+                            <select id="symbol-selector"
+                                style="padding: 5px 10px; margin-left: 20px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: #fff; font-size: 0.9rem; cursor: pointer;">
+                                <option value="BTCUSDT" selected>BTC/USDT</option>
+                                <option value="ETHUSDT">ETH/USDT</option>
+                                <option value="BNBUSDT">BNB/USDT</option>
+                                <option value="SOLUSDT">SOL/USDT</option>
+                                <option value="ADAUSDT">ADA/USDT</option>
+                            </select>
+                        </div>
                     </div>
                     <div class="kline-container-wrapper">
                         <div class="tradingview-widget-container">
@@ -107,7 +118,18 @@
             <section class="row-tables">
                 <!-- Decisions -->
                 <div class="glass-panel card decision-table-card">
-                    <h2>📋 Recent Decisions</h2>
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <h2 style="margin: 0;">📋 Recent Decisions</h2>
+                        <div id="position-info"
+                            style="font-size: 0.85rem; color: #a0aec0; display: flex; gap: 20px; align-items: center;">
+                            <span id="position-count" style="color: #e0e6ed;">📊 Positions: 0</span>
+                            <div id="position-details" style="display: flex; gap: 15px;">
+                                <!-- Dynamic position details will be inserted here -->
+                            </div>
+                            <span id="position-pnl" class="val neutral">Total PnL: $0.00</span>
+                        </div>
+                    </div>
                     <div class="table-container">
                         <table id="decision-table">
                             <thead>
@@ -144,13 +166,16 @@
                         <table id="trade-table">
                             <thead>
                                 <tr>
-                                    <th>Time</th>
-                                    <th>Symbol</th>
-                                    <th>Action</th>
-                                    <th>Price</th>
-                                    <th>Cost</th>
-                                    <th>Exit</th>
-                                    <th>PnL</th>
+                                    <th title="交易记录时间">Time</th>
+                                    <th title="交易动作 (BUY/SELL/CLOSE)">Action</th>
+                                    <th title="交易对">Symbol</th>
+                                    <th title="交易价格">Price</th>
+                                    <th title="交易数量">Quantity</th>
+                                    <th title="交易成本 (价格 × 数量)">Cost</th>
+                                    <th title="平仓价格">Exit Price</th>
+                                    <th title="盈亏金额">PnL</th>
+                                    <th title="决策信心度 (0-100%)">Confidence</th>
+                                    <th title="交易状态 (OPEN/CLOSED/PENDING)">Status</th>
                                 </tr>
                             </thead>
                             <tbody>

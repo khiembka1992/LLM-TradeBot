@@ -166,6 +166,8 @@ class DecisionCoreAgent:
             key: scores[key] * getattr(self.weights, key, 1.0) * (w_others if key != 'sentiment' else 1.0)
             for key in scores.keys()
         }
+        # Re-add strategist total score (was lost in reassignment)
+        vote_details['strategist_total'] = quant_analysis.get('comprehensive', {}).get('total_score', 0)
         
         # 6. 多周期对齐检测
         aligned, alignment_reason = self._check_multi_period_alignment(
