@@ -429,7 +429,8 @@ tr:hover {
     flex-direction: column;
     gap: 15px;
     flex: 1;
-    overflow: hidden;
+    min-height: 0;
+    /* Important for flex scrolling */
 }
 
 .agent-viz {
@@ -484,7 +485,10 @@ tr:hover {
 
 .logs-scroll {
     flex: 1;
-    overflow-y: auto;
+    overflow-y: scroll;
+    max-height: 300px;
+    /* Limit height to enable scrolling */
+    /* Changed from auto to always show scrollbar */
     min-height: 0;
     /* key for flex scroll */
     font-family: var(--font-mono);

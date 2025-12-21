@@ -91,7 +91,7 @@ class SharedState:
         self.last_update = datetime.now().strftime("%H:%M:%S")
         
     def add_log(self, message: str):
-        timestamp = datetime.now().strftime("%H:%M:%S")
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.recent_logs.append(f"[{timestamp}] {message}")
         if len(self.recent_logs) > 500:
             self.recent_logs.pop(0)

@@ -154,7 +154,7 @@ class MultiAgentTradingBot:
         
         # Update Dashboard Status
         global_state.is_running = True
-        global_state.add_log(f"Starting trading cycle for {self.symbol}")
+        # Removed verbose log: Starting trading cycle
         
         try:
             # ✅ Increment cycle counter and generate cycle ID
@@ -164,14 +164,15 @@ class MultiAgentTradingBot:
             global_state.current_cycle_id = cycle_id
             
             print(f"🔄 Cycle #{cycle_num} | ID: {cycle_id}")
-            global_state.add_log(f"Cycle #{cycle_num} started")
+            global_state.add_log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            global_state.add_log(f"🔄 Cycle #{cycle_num} started | ID: {cycle_id}")
             
             # ✅ Generate snapshot_id for this cycle (legacy compatibility)
             snapshot_id = f"snap_{int(time.time())}"
 
             # Step 1: 采样 - 数据先知 (The Oracle)
             print("\n[Step 1/4] 🕵️ 数据先知 (The Oracle) - 异步数据采集...")
-            global_state.add_log("[Oracle] Fetching market data (5m/15m/1h)...")
+            # Removed verbose log: Oracle fetching data
             global_state.oracle_status = "Fetching Data..." 
             market_snapshot = await self.data_sync_agent.fetch_all_timeframes(self.symbol)
             global_state.oracle_status = "Data Ready"
@@ -208,7 +209,7 @@ class MultiAgentTradingBot:
             
             # Step 2: 假设 - 量化策略师 (The Strategist)
             print("[Step 2/4] 👨‍🔬 量化策略师 (The Strategist) - 评估数据中...")
-            global_state.add_log("[Strategist] Analyzing trends & indicators...")
+            # Removed verbose log: Strategist analyzing
             quant_analysis = await self.quant_analyst.analyze_all_timeframes(market_snapshot)
             
             # Update Dashboard Strategist Score
@@ -220,7 +221,7 @@ class MultiAgentTradingBot:
             
             # Step 3: 对抗 - 对抗评论员 (The Critic)
             print("[Step 3/4] ⚖️ 对抗评论员 (The Critic) - 极速审理信号...")
-            global_state.add_log("[Critic] Reviewing signals & voting...")
+            # Removed verbose log: Critic reviewing
             # ✅ 复用 Step 1 已处理的数据，避免第三次计算
             market_data = {
                 'df_5m': processed_dfs['5m'],
@@ -293,7 +294,7 @@ class MultiAgentTradingBot:
             
             # Step 4: 审计 - 风控守护者 (The Guardian)
             print(f"[Step 4/4] 👮 风控守护者 (The Guardian) - 进行终审...")
-            global_state.add_log("[Guardian] Auditing decision for risk...")
+            # Removed verbose log: Guardian auditing
             global_state.guardian_status = "Auditing..."
             
             order_params = self._build_order_params(
@@ -421,7 +422,7 @@ class MultiAgentTradingBot:
             if self.test_mode:
                 print("\n[Step 5/5] 🧪 TestMode - 模拟执行...")
                 print(f"  模拟订单: {order_params['action']} {order_params['quantity']} @ {current_price}")
-                global_state.add_log(f"Simulating Order: {order_params['action']} {order_params['quantity']}")
+                # Removed verbose log: Simulating order
                 
                  # ✅ Save Execution (Simulated)
                 self.saver.save_execution({
@@ -458,7 +459,7 @@ class MultiAgentTradingBot:
                 }
             
             print("\n[Step 5/5] 🚀 ExecutionEngine - 正在执行...")
-            global_state.add_log(f"Executing Order: {order_params['action']} {order_params['quantity']}")
+            # Removed verbose log: Executing order
             executed = self._execute_order(order_params)
             
             # ✅ Save Execution
@@ -472,7 +473,7 @@ class MultiAgentTradingBot:
             
             if executed:
                 print("  ✅ 订单执行成功!")
-                global_state.add_log(f"Order Executed Successfully")
+                global_state.add_log(f"✅ Order: {order_params['action'].upper()} {order_params['quantity']} @ ${order_params['price']}")
                 
                 # 记录交易日志
                 trade_logger.log_open_position(
@@ -528,7 +529,7 @@ class MultiAgentTradingBot:
                 }
             else:
                 print("  ❌ 订单执行失败")
-                global_state.add_log(f"Order Execution Failed")
+                global_state.add_log(f"❌ Order Failed: {order_params['action'].upper()}")
                 return {
                     'status': 'failed',
                     'action': vote_result.action,
