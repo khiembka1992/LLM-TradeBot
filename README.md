@@ -61,25 +61,44 @@ Edit `config.yaml` to set parameters:
 - Leverage (leverage)
 - Stop loss/Take profit % (stop_loss_pct, take_profit_pct)
 
-#### 4. Start Web Dashboard (Recommended)
+#### 4. Start the Bot
 
 ![Dashboard Preview](./docs/dashboard_preview_1.png)
 ![Live Log Output](./docs/dashboard_preview_2.png)
 Built-in modern real-time monitoring dashboard.
 
+##### 🧪 Test Mode (Recommended for beginners)
+
+Simulates trading with virtual balance ($1000). No real trades executed.
+
 ```bash
-# Start main program (automatically starts Web server)
+# Start with test mode
+python main.py --test --mode continuous
+```
+
+##### 🔴 Live Trading Mode
+
+⚠️ **WARNING**: Executes real trades on Binance Futures!
+
+```bash
+# Start live trading
 python main.py --mode continuous
 ```
+
+> **Prerequisites for Live Trading**:
+>
+> - Valid Binance Futures API keys configured in `.env`
+> - Sufficient USDT balance in Futures wallet
+> - API permissions: Read + Futures Trading enabled
 
 After startup, visit: **<http://localhost:8000>**
 
 **Dashboard Features**:
 
 - **📉 Real-time K-Line**: Integrated TradingView widget, 1-minute real-time updates
-- **📈 Net Value Curve**: Real-time equity tracking
+- **📈 Net Value Curve**: Real-time equity tracking with initial balance baseline
 - **📋 Decision Audit**: Full history of decision records, including detailed Agent scores (Strategist, Trend, Oscillator, Sentiment)
-- **📜 Trade History**: Complete record of all trades and PnL statistics
+- **📜 Trade History**: Complete record of all trades with Open/Close cycles and PnL statistics
 - **📡 Live Log Output**: Real-time scrolling logs with highlighted Agent tags (Oracle, Strategist, Critic, Guardian), 500-line history buffer
 
 ---
