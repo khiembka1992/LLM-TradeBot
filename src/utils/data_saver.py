@@ -135,11 +135,15 @@ class DataSaver:
             df.to_csv(path, index=False)
             saved_files['csv'] = path
             
-        if 'parquet' in save_formats:
-            path = os.path.join(date_folder, f'{filename_base}.parquet')
-            df.to_parquet(path, index=False)
-            saved_files['parquet'] = path
             
+        if 'parquet' in save_formats:
+            try:
+                path = os.path.join(date_folder, f'{filename_base}.parquet')
+                df.to_parquet(path, index=False)
+                saved_files['parquet'] = path
+            except Exception as e:
+                log.warning(f"Failed to save parquet for market_data (using json/csv instead): {e}")
+
         log.debug(f"保存市场数据: {symbol} {timeframe}")
         return saved_files
 
@@ -161,9 +165,16 @@ class DataSaver:
             filename = f'indicators_{symbol}_{timeframe}_{timestamp}_{snapshot_id}.parquet'
         path = os.path.join(date_folder, filename)
         
-        df.to_parquet(path)
-        log.debug(f"保存技术指标: {path}")
-        return {'parquet': path}
+        try:
+            df.to_parquet(path)
+            log.debug(f"保存技术指标: {path}")
+            return {'parquet': path}
+        except Exception as e:
+            log.warning(f"Failed to save parquet for indicators: {e}")
+            # Fallback to CSV
+            csv_path = path.replace('.parquet', '.csv')
+            df.to_csv(csv_path)
+            return {'csv': csv_path}
 
     def save_features(
         self,
@@ -184,9 +195,16 @@ class DataSaver:
             filename = f'features_{symbol}_{timeframe}_{timestamp}_{snapshot_id}_{version}.parquet'
         path = os.path.join(date_folder, filename)
         
-        features.to_parquet(path)
-        log.debug(f"保存特征数据: {path}")
-        return {'parquet': path}
+        try:
+            features.to_parquet(path)
+            log.debug(f"保存特征数据: {path}")
+            return {'parquet': path}
+        except Exception as e:
+            log.warning(f"Failed to save parquet for features: {e}")
+            # Fallback to CSV
+            csv_path = path.replace('.parquet', '.csv')
+            features.to_csv(csv_path)
+            return {'csv': csv_path}
 
     def save_context(
         self,
