@@ -25,11 +25,11 @@ class Config:
     
     def _load_config(self):
         """加载配置文件"""
-        config_path = Path(__file__).parent.parent / "config.yaml"
+        config_path = Path(__file__).parent.parent.parent / "config.yaml"
         
         if not config_path.exists():
             # 如果没有config.yaml,使用example
-            example_path = Path(__file__).parent.parent / "config.example.yaml"
+            example_path = Path(__file__).parent.parent.parent / "config.example.yaml"
             if example_path.exists():
                 with open(example_path, 'r', encoding='utf-8') as f:
                     self._config = yaml.safe_load(f)
