@@ -38,3 +38,4 @@ jsonschema==4.20.0
 # Web Dashboard
 fastapi==0.104.1
 uvicorn==0.24.0
+pyarrow
