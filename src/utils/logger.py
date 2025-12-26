@@ -27,8 +27,8 @@ class ColoredLogger:
         )
         if context:
             # 截断过长的上下文
-            if len(context) > 1000:
-                display_context = context[:500] + "\n... (省略中间部分) ...\n" + context[-500:]
+            if len(context) > 5000:
+                display_context = context[:2000] + "\n... (省略中间部分) ...\n" + context[-2000:]
             else:
                 display_context = context
             self._logger.opt(colors=True).info(f"<cyan>{display_context}</cyan>")

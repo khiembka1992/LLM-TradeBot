@@ -62,7 +62,10 @@ class QuantClient:
                     result = await response.json()
                     if result.get("success"):
                         return result.get("data", {})
-                log.error(f"Quant API 请求失败: {response.status}")
+                if response.status == 401:
+                    log.error(f"Quant API 鉴权失败(401): 请检查 QUANT_AUTH_TOKEN 环境变量是否正确设置")
+                else:
+                    log.error(f"Quant API 请求失败: {response.status}")
                 return {}
         except Exception as e:
             log.error(f"Quant API 异常: {e}")
