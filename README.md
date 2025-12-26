@@ -180,6 +180,8 @@ python main.py --mode continuous
 
 After startup, visit: **<http://localhost:8000>** (or use our [Cloud Hosting](https://web-production-169bb.up.railway.app/))
 
+> **Default Password**: `EthanAlgoX`
+
 **Dashboard Features**:
 
 - **📉 Real-time K-Line**: Integrated TradingView widget, 1-minute real-time updates
