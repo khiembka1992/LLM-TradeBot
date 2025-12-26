@@ -214,6 +214,10 @@
                 const data = await res.json();
                 if (data.deployment_mode === 'railway') {
                     hintEl.style.display = 'block';
+                    // Railway: Default empty (User Role is default)
+                } else {
+                    // Local: Default autofill 'admin' for convenience
+                    input.value = 'admin';
                 }
             } catch (e) {
                 console.error('Failed to check mode:', e);

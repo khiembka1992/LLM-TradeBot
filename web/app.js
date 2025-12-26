@@ -898,39 +898,8 @@ function setControl(action, payload = {}) {
     if (!verifyRole()) return;
 
     // For 'start' action, check demo mode and show warning if needed
-    if (action === 'start') {
-        // Fetch current config to check if using default API
-        fetch('/api/config')
-            .then(res => res.json())
-            .then(config => {
-                const deepseekKey = config.api_keys?.deepseek_api_key || '';
-                const openaiKey = config.api_keys?.openai_api_key || '';
-                const claudeKey = config.api_keys?.claude_api_key || '';
-
-                // Check if all keys are masked (****) or empty - indicates using default
-                const isDefaultApi = (!deepseekKey || deepseekKey.includes('****')) &&
-                    (!openaiKey || openaiKey.includes('****')) &&
-                    (!claudeKey || claudeKey.includes('****'));
-
-                if (isDefaultApi) {
-                    // Show warning modal
-                    showDemoWarningModal(() => {
-                        // User confirmed, proceed with start
-                        sendControlRequest(action, payload);
-                    });
-                } else {
-                    // User has their own API key, proceed directly
-                    sendControlRequest(action, payload);
-                }
-            })
-            .catch(err => {
-                console.error('Failed to check config:', err);
-                // Proceed anyway if config check fails
-                sendControlRequest(action, payload);
-            });
-    } else {
-        sendControlRequest(action, payload);
-    }
+    // REMOVED per user request: No API warnings for Admin. verifyRole blocks Users.
+    sendControlRequest(action, payload);
 }
 
 function sendControlRequest(action, payload = {}) {
