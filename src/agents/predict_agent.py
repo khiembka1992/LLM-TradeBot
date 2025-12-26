@@ -357,13 +357,22 @@ class PredictAgent:
                 reverse=True
             )[:5])
             
-            # 根据概率偏离程度计算置信度
-            confidence = abs(prob_up - 0.5) * 2  # 偏离越大置信度越高
+            # 根据概率偏离程度计算基础置信度
+            base_confidence = abs(prob_up - 0.5) * 2  # 0.0 - 1.0
+            
+            # 使用验证集 AUC 分数进行缩放
+            # AUC 0.5 -> 0.0 impact (Random)
+            # AUC 1.0 -> 1.0 impact (Perfect)
+            val_auc = self.ml_model.val_auc
+            auc_factor = max(0.0, (val_auc - 0.5) * 2)
+            
+            # 最终置信度 = 基础置信度 * 模型质量因子
+            final_confidence = base_confidence * auc_factor
             
             return PredictResult(
                 probability_up=round(prob_up, 4),
                 probability_down=round(prob_down, 4),
-                confidence=round(min(confidence, 1.0), 4),
+                confidence=round(min(final_confidence, 1.0), 4),
                 horizon=self.horizon,
                 factors=top_factors,
                 model_type='ml_lightgbm'

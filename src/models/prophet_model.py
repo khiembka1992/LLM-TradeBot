@@ -163,10 +163,18 @@ class ProphetMLModel:
             val_auc = self._calculate_auc(y_val, val_pred)
             metrics['val_samples'] = len(X_val)
             metrics['val_auc'] = val_auc
+            self.val_auc_score = val_auc  # Store for runtime usage
+        else:
+            self.val_auc_score = 0.5
         
         log.info(f"   ✅ 训练完成! AUC: {train_auc:.4f}")
         
         return metrics
+
+    @property
+    def val_auc(self) -> float:
+        """获取验证集 AUC 分数"""
+        return getattr(self, 'val_auc_score', 0.5)
     
     def predict_proba(self, features: Dict[str, float]) -> float:
         """
@@ -239,6 +247,7 @@ class ProphetMLModel:
             'model': self.model,
             'feature_names': self.feature_names,
             'is_trained': self.is_trained,
+            'val_auc': getattr(self, 'val_auc_score', 0.5), # Persist AUC
             'saved_at': datetime.now().isoformat(),
         }
         
@@ -259,11 +268,12 @@ class ProphetMLModel:
         
         with open(path, 'rb') as f:
             model_data = pickle.load(f)
-        
-        self.model = model_data.get('model')
-        self.feature_names = model_data.get('feature_names', [])
-        self.is_trained = model_data.get('is_trained', False)
-        
+            
+        self.model = model_data['model']
+        self.feature_names = model_data['feature_names']
+        self.is_trained = model_data.get('is_trained', True)
+        self.val_auc_score = model_data.get('val_auc', 0.5) # Load AUC
+        self.model_path = path
         log.info(f"✅ 模型已加载: {path}")
     
     def get_feature_importance(self) -> Dict[str, float]:
