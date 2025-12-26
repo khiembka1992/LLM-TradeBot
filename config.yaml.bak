@@ -9,7 +9,7 @@ binance:
 # DeepSeek API 配置 (向后兼容)
 # 注意: api_key 会被 .env 文件中的环境变量自动覆盖
 deepseek:
-  api_key: "DEEPSEEK_API_KEY"       # 会被环境变量 DEEPSEEK_API_KEY 覆盖
+  api_key: "sk-88b699535cbc47da9bf1e0bc17c3280c"       # 会被环境变量 DEEPSEEK_API_KEY 覆盖
   base_url: "https://api.deepseek.com"
   model: "deepseek-chat"
   temperature: 0.3
@@ -27,7 +27,7 @@ llm:
 
 # 交易配置
 trading:
-  symbols: ["BTCUSDT"]  # 默认只使用 BTC，可添加其他币种如 "ETHUSDT", "SOLUSDT"
+  symbols: ["BTCUSDT"]  # 支持多币种
   primary_symbol: "BTCUSDT"  # 主要交易对（向后兼容）
   timeframes: ["1m", "5m", "15m", "1h"]
   leverage: 5

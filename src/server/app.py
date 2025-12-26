@@ -36,7 +36,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 WEB_DIR = os.path.join(BASE_DIR, 'web')
 
 # Authentication Configuration
-WEB_PASSWORD = os.environ.get("WEB_PASSWORD", "EthanAlgoX")  # Default password
+WEB_PASSWORD = os.environ.get("WEB_PASSWORD", "admin")  # Default password
 SESSION_COOKIE_NAME = "tradebot_session"
 # Simple in-memory session store (In production use Redis or signed cookies)
 VALID_SESSIONS = set()
@@ -133,7 +133,6 @@ async def get_status(authenticated: bool = Depends(verify_auth)):
             "position": global_state.price_position
         },
         "agents": {
-            "strategist_score": global_state.strategist_score,
             "critic_confidence": global_state.critic_confidence,
             "guardian_status": global_state.guardian_status
         },

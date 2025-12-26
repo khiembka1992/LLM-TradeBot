@@ -175,8 +175,7 @@ class DecisionCoreAgent:
             'oscillator_15m': scores['oscillator_15m'] * self.weights.oscillator_15m * w_others,
             'oscillator_1h': scores['oscillator_1h'] * self.weights.oscillator_1h * w_others,
             'prophet': scores.get('prophet', 0) * self.weights.prophet * w_others,
-            'sentiment': scores.get('sentiment', 0) * w_sentiment,
-            'strategist_total': quant_analysis.get('comprehensive', {}).get('score', 0)
+            'sentiment': scores.get('sentiment', 0) * w_sentiment
         }
 
         # 5. 提前过滤逻辑：震荡市+位置不佳
@@ -211,7 +210,7 @@ class DecisionCoreAgent:
         final_confidence = base_confidence * 100
         
         # --- 对抗式审计: 机构资金流背离检查 ---
-        sent_details = quant_analysis.get('comprehensive', {}).get('details', {}).get('sentiment', {})
+        sent_details = quant_analysis.get('sentiment', {}).get('details', {})
         inst_nf_1h = sent_details.get('inst_netflow_1h', 0)
         
         if action == 'open_long' and inst_nf_1h < -1000000: # 1h 机构净流出超过 1M

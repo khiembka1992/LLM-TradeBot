@@ -34,7 +34,7 @@ class ConfigManager:
                 "gemini_api_key": self._mask_key(env_vars.get('GEMINI_API_KEY', ''))
             },
             "trading": {
-                "symbol": env_vars.get('TRADING_SYMBOL', 'SOLUSDT'),
+                "symbol": env_vars.get('TRADING_SYMBOLS', env_vars.get('TRADING_SYMBOL', 'BTCUSDT')),
                 "timeframe": env_vars.get('TRADING_TIMEFRAME', '15m'),
                 "leverage": int(env_vars.get('LEVERAGE', 1)),
                 "run_mode": env_vars.get('RUN_MODE', 'test')
@@ -61,7 +61,7 @@ class ConfigManager:
                 "claude_api_key": "CLAUDE_API_KEY",
                 "qwen_api_key": "QWEN_API_KEY",
                 "gemini_api_key": "GEMINI_API_KEY",
-                "symbol": "TRADING_SYMBOL",
+                "symbol": "TRADING_SYMBOLS",  # Support multiple symbols
                 "leverage": "LEVERAGE",
                 "run_mode": "RUN_MODE",
                 "llm_provider": "LLM_PROVIDER"

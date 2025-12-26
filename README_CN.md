@@ -115,7 +115,7 @@ python main.py --mode continuous
 
 启动后,请在浏览器访问: **<http://localhost:8000>** (或使用我们的 [云端在线版](https://web-production-169bb.up.railway.app/))
 
-> **默认密码**: `EthanAlgoX`
+> **默认密码**: `admin`
 
 **仪表盘功能**:
 

@@ -31,5 +31,5 @@ COPY . .
 EXPOSE 8000
 
 # Run the command to start the application
-# We use the existing main.py structure which handles both loop and server
+# Railway auto-detects deployment mode via RAILWAY_ENVIRONMENT variable
 CMD ["python", "main.py", "--mode", "continuous", "--interval", "1"]

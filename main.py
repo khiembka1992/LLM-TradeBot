@@ -23,6 +23,25 @@ Date: 2025-12-19
 import asyncio
 import sys
 import os
+
+# Deployment mode detection: 'local' or 'railway'
+# Railway deployment sets RAILWAY_ENVIRONMENT, use that as detection
+DEPLOYMENT_MODE = os.environ.get('DEPLOYMENT_MODE', 'railway' if os.environ.get('RAILWAY_ENVIRONMENT') else 'local')
+
+# Configure based on deployment mode
+if DEPLOYMENT_MODE == 'local':
+    # Local deployment: Prefer REST API for data fetching (more stable for local dev)
+    if 'USE_WEBSOCKET' not in os.environ:
+        os.environ['USE_WEBSOCKET'] = 'false'
+    # Enable detailed LLM logging
+    os.environ['ENABLE_DETAILED_LLM_LOGS'] = 'true'
+else:
+    # Railway deployment: Use WebSocket for low latency
+    if 'USE_WEBSOCKET' not in os.environ:
+        os.environ['USE_WEBSOCKET'] = 'true'
+    # Disable detailed LLM logging to save disk space
+    os.environ['ENABLE_DETAILED_LLM_LOGS'] = 'false'
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
 
 from typing import Dict, Optional, List
@@ -106,18 +125,29 @@ class MultiAgentTradingBot:
         print("="*80)
         
         self.config = Config()
-        # 多币种支持: 优先读取 trading.symbols (list)，否则读取 trading.symbol (str/csv)
-        symbols_config = self.config.get('trading.symbols', None)
         
-        if symbols_config and isinstance(symbols_config, list):
-            self.symbols = symbols_config
+        # 多币种支持: 优先级顺序
+        # 1. 环境变量 TRADING_SYMBOLS (来自 .env，Dashboard 设置会更新这个)
+        # 2. config.yaml 中的 trading.symbols (list)
+        # 3. config.yaml 中的 trading.symbol (str/csv, 向后兼容)
+        env_symbols = os.environ.get('TRADING_SYMBOLS', '').strip()
+        
+        if env_symbols:
+            # Dashboard 设置的币种 (逗号分隔)
+            self.symbols = [s.strip() for s in env_symbols.split(',') if s.strip()]
         else:
-            # 向后兼容: 使用旧版 trading.symbol 配置 (支持 CSV 字符串 "BTCUSDT,ETHUSDT")
-            symbol_str = self.config.get('trading.symbol', 'BTCUSDT')
-            if ',' in symbol_str:
-                self.symbols = [s.strip() for s in symbol_str.split(',') if s.strip()]
+            # 从 config.yaml 读取
+            symbols_config = self.config.get('trading.symbols', None)
+            
+            if symbols_config and isinstance(symbols_config, list):
+                self.symbols = symbols_config
             else:
-                self.symbols = [symbol_str]
+                # 向后兼容: 使用旧版 trading.symbol 配置 (支持 CSV 字符串 "BTCUSDT,ETHUSDT")
+                symbol_str = self.config.get('trading.symbol', 'BTCUSDT')
+                if ',' in symbol_str:
+                    self.symbols = [s.strip() for s in symbol_str.split(',') if s.strip()]
+                else:
+                    self.symbols = [symbol_str]
                 
         self.primary_symbol = self.config.get('trading.primary_symbol', self.symbols[0])
         self.current_symbol = self.primary_symbol  # 当前处理的交易对
@@ -397,10 +427,6 @@ class MultiAgentTradingBot:
             print("[Step 2/4] 👨‍🔬 量化策略师 (The Strategist) - 评估数据中...")
             quant_analysis = await self.quant_analyst.analyze_all_timeframes(market_snapshot)
             
-            # Update Dashboard
-            s_score = quant_analysis['comprehensive']['score']
-            global_state.strategist_score = s_score
-            
             # Save Context
             self.saver.save_context(quant_analysis, self.current_symbol, 'analytics', snapshot_id, cycle_id=cycle_id)
             
@@ -550,7 +576,9 @@ class MultiAgentTradingBot:
             )
             
             # 保存完整的 LLM 交互日志 (Input, Process, Output)
-            full_log_content = f"""
+            # Only save detailed logs in local mode to conserve disk space on Railway
+            if os.environ.get('ENABLE_DETAILED_LLM_LOGS', 'false').lower() == 'true':
+                full_log_content = f"""
 ================================================================================
 🕐 Timestamp: {datetime.now().isoformat()}
 💱 Symbol: {self.current_symbol}
@@ -576,12 +604,12 @@ class MultiAgentTradingBot:
 --------------------------------------------------------------------------------
 {llm_decision.get('raw_response', '(No raw response)')}
 """
-            self.saver.save_llm_log(
-                content=full_log_content,
-                symbol=self.current_symbol,
-                snapshot_id=snapshot_id,
-                cycle_id=cycle_id
-            )
+                self.saver.save_llm_log(
+                    content=full_log_content,
+                    symbol=self.current_symbol,
+                    snapshot_id=snapshot_id,
+                    cycle_id=cycle_id
+                )
             
             # LOG: Bull/Bear Agents (show first for adversarial context)
             bull_conf = llm_decision.get('bull_perspective', {}).get('bull_confidence', 50)
@@ -1407,8 +1435,6 @@ class MultiAgentTradingBot:
 - Price Position: {price_position.upper()} ({min(max(price_position_pct, 0), 100):.1f}% of recent range)
 - Note: Position near extremes (0-20% or 80-100%) suggests potential reversal zones
 {self._format_choppy_analysis(regime_info)}
-## 7. Comprehensive Score
-- Strategist Score: {quant_analysis.get('comprehensive', {}).get('score', 0):.0f}/100
 """
         return context
 

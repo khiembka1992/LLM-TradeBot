@@ -344,62 +344,16 @@ class QuantAnalystAgent:
         o_score = osc_results.get('total_oscillator_score')
         s_score = sentiment_results.get('total_sentiment_score')
         
-        # Calculate composite score with DYNAMIC WEIGHTS
-        # If a component is missing (None), redistribute its weight to available components
-        composite_score = None
-        
-        weights = {'trend': 0.4, 'oscillator': 0.3, 'sentiment': 0.3}
-        available_components = {}
-        
-        if t_score is not None:
-            available_components['trend'] = t_score
-        if o_score is not None:
-            available_components['oscillator'] = o_score
-        if s_score is not None:
-            available_components['sentiment'] = s_score
-        
-        if available_components:
-            # Calculate total weight of available components
-            total_available_weight = sum(weights[k] for k in available_components.keys())
-            
-            # Normalize weights and calculate weighted score
-            weighted_sum = 0
-            for name, score in available_components.items():
-                normalized_weight = weights[name] / total_available_weight
-                weighted_sum += score * normalized_weight
-            
-            composite_score = weighted_sum
-            # Ensure within bounds
-            composite_score = max(-100, min(100, composite_score))
-        
         report = {
-            'comprehensive': {
-                'score': composite_score if composite_score is not None else 0,
-                'signal': self._score_to_signal(composite_score),
-                'volatility': self._calculate_volatility(snapshot),
-                'details': {
-                    'trend': trend_results,
-                    'oscillator': osc_results,
-                    'sentiment': sentiment_results
-                }
-            },
             'trend': trend_results,
             'oscillator': osc_results,
             'sentiment': sentiment_results,
-            'regime': regime_results  # New: Regime Analysis
+            'regime': regime_results,  # New: Regime Analysis
+            'volatility': self._calculate_volatility(snapshot)
         }
         
         return report
 
-    def _score_to_signal(self, score: Optional[float]) -> str:
-        """将得分转换为信号标签"""
-        if score is None: return "neutral"
-        if score > 30:
-            return "buy"
-        elif score < -30:
-            return "sell"
-        else:
-            return "neutral"
 
     async def analyze(self, snapshot: MarketSnapshot) -> Dict:
         """兼容性接口，返回综合分析内容"""

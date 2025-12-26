@@ -98,21 +98,23 @@ The system has prepared complete technical analysis data for **5m/15m/1h** timef
 **This is the most profitable setup - DO NOT automatically skip it!**
 
 When 1h shows CLEAR TREND (Uptrend or Downtrend):
-1. **5m pullback against 1h direction = ENTRY OPPORTUNITY, not conflict**
-2. **CHOPPY market during uptrend = Consolidation before continuation**
-3. **Price in middle zone (40-60%) during uptrend = Healthy accumulation**
+1. **5m pullback or sideways consolidation against 1h direction = CONFIDENCE BOOSTER, not conflict.**
+2. **5m sideways movement = "Bull/Bear Flag" (Trend Continuation). This is a HIGH-PROBABILITY entry timing.**
+3. **Price in middle zone (40-60%) during strong trend = Perfect "Sell the Rally" (Downtrend) or "Buy the Dip" (Uptrend) timing.**
 
 #### Pullback Long Setup (1h Uptrend)
 - 1h: Strong uptrend (EMA12 > EMA26, MACD positive)
 - 15m: Bullish or neutral
-- 5m: Shows short-term bearish (RSI dipping, minor sell-off)
-- **ACTION**: This is "BUY THE DIP" → Open Long with 50-70% size
+- 5m: Shows short-term bearish (RSI dipping) or sideways/choppy
+- **ACTION**: This is "BUY THE DIP" → Open Long with 70% size.
+- **CONFIDENCE**: These setups SHOULD result in Confidence ≥ 80%.
 
 #### Pullback Short Setup (1h Downtrend)
 - 1h: Strong downtrend (EMA12 < EMA26, MACD negative)
 - 15m: Bearish or neutral
-- 5m: Shows short-term bullish (RSI bouncing, minor rally)
-- **ACTION**: This is "SELL THE RALLY" → Open Short with 50-70% size
+- 5m: Shows short-term bullish (RSI bouncing) or sideways/choppy
+- **ACTION**: This is "SELL THE RALLY" → Open Short with 70% size.
+- **CONFIDENCE**: These setups SHOULD result in Confidence ≥ 80%.
 
 ### When to WAIT (True Conflict)
 - 1h trend UNCLEAR (ADX < 20, or flat MAs)
@@ -283,14 +285,15 @@ Step 1: Check 1h Trend
 - These prevents low-conviction trades from entering the market
 
 ### 5. Confidence Calibration (MANDATORY)
-- **Anchor to Strategist Score**: Your confidence MUST generally align with the `Strategist Score` (0-100).
-  - If Strategist Score is < 30, Confidence CANNOT exceed 60% (unless strong specific 5m setup).
+- **Setup-Specific Boosting**:
+  - If a **"With-Trend Pullback"** or **"Bear/Bull Flag"** (5m sideways in 1h trend) is identified, boost confidence to **≥ 80%**.
+  - **DO NOT** penalize confidence for 5m sideways movement when 1h trend is strong; treat it as a timing confirmation.
 - **Penalty for Divergence**:
-  - If Prophet is Bearish but you want to Long: **Rationalize why** and deduct 20% confidence.
-  - If MACD is Bearish but you want to Long: **Rationalize why** and deduct 20% confidence.
+  - If Prophet is EXTREMELY Bearish but you want to Long: Deduct 20% confidence.
+  - If MACD is Bearish but you want to Long: Deduct 20% confidence.
 - **No Blind Confidence**:
-  - NEVER output confidence > 80% if auxiliary signals (Prophet, MACD, Squeeze) contradict your trade direction.
-  - HIGH CONFIDENCE (>80) implies ALL lights are green.
+  - NEVER output confidence > 80% if 1h trend is clearly against your direction.
+  - HIGH CONFIDENCE (>80) is reserved for directionally aligned trades where timing (pullback) is optimal.
 
 ## 📝 Output Examples
 

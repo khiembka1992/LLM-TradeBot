@@ -109,7 +109,8 @@ class BinanceWebSocketManager:
             
             # 转换为标准格式 (与 REST API 一致)
             kline_data = {
-                'open_time': kline['t'],
+                'timestamp': kline['t'],     # 开盘时间 (毫秒时间戳)
+                'open_time': kline['t'],     # 保持对旧代码的兼容性
                 'open': float(kline['o']),
                 'high': float(kline['h']),
                 'low': float(kline['l']),
@@ -123,17 +124,16 @@ class BinanceWebSocketManager:
             with self._cache_lock:
                 cache = self.kline_cache[timeframe]
                 
-                # 如果是新 K 线（已完成），追加到缓存
-                if is_closed:
-                    cache.append(kline_data)
-                    log.debug(f"📊 新 K 线: {self.symbol} {timeframe} | Close: {kline_data['close']}")
+                if cache and cache[-1]['timestamp'] == kline_data['timestamp']:
+                    # 如果时间戳相同，无论是否已完成，都直接更新（覆盖旧数据或更新未完成数据）
+                    cache[-1] = kline_data
+                    if is_closed:
+                        log.debug(f"📊 K 线已关闭: {self.symbol} {timeframe} | Close: {kline_data['close']}")
                 else:
-                    # 如果是当前 K 线更新，替换最后一个
-                    if cache and cache[-1]['open_time'] == kline_data['open_time']:
-                        cache[-1] = kline_data
-                    else:
-                        # 第一次收到当前 K 线
-                        cache.append(kline_data)
+                    # 如果是新时间戳，追加到缓存
+                    cache.append(kline_data)
+                    if is_closed:
+                        log.debug(f"📊 新 K 线开启且已完成: {self.symbol} {timeframe}")
                         
         except Exception as e:
             log.error(f"处理 WebSocket 消息失败: {e}")

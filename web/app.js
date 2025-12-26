@@ -1511,12 +1511,13 @@ async function loadSettings() {
                 cb.checked = false;
             }
         });
-        // Default to Select All if none saved, OR if it matches the legacy default 'BTCUSDT'
-        // This ensures users migrating or starting fresh get all options selected by default as requested.
-        const isLegacyDefault = savedSymbols.length === 1 && (savedSymbols[0] === 'BTCUSDT' || savedSymbols[0] === 'SOLUSDT' || savedSymbols[0] === '');
+        // Default to BTCUSDT if none saved or matches legacy default
+        const isLegacyDefault = savedSymbols.length === 0 || (savedSymbols.length === 1 && (savedSymbols[0] === '' || savedSymbols[0] === 'BTCUSDT' || savedSymbols[0] === 'SOLUSDT'));
 
         if (!anyChecked || isLegacyDefault) {
-            checkboxes.forEach(cb => cb.checked = true);
+            checkboxes.forEach(cb => {
+                if (cb.value === 'BTCUSDT') cb.checked = true;
+            });
         }
         document.getElementById('cfg-leverage').value = safeVal(config.trading.leverage);
         document.getElementById('cfg-run-mode').value = safeVal(config.trading.run_mode || 'test');
