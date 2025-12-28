@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LLM-TradeBot Dashboard</title>
-    <link rel="stylesheet" href="/static/style.css?v=43">
+    <link rel="stylesheet" href="/static/style.css?v=42">
     <link
         href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600&display=swap"
         rel="stylesheet">
@@ -214,38 +214,34 @@
                                 <!-- Agent Group Header Row -->
                                 <tr class="agent-group-row">
                                     <th colspan="3" class="group-system">📊 System</th>
-                                    <th colspan="3" class="group-decision">⚖️ Decision</th>
-                                    <th colspan="4" class="group-strategist">🚀 Strategist</th>
-                                    <th colspan="2" class="group-context">🌍 Context</th>
-                                    <th colspan="1" class="group-prophet">🔮 Prophet</th>
+                                    <th colspan="3" class="group-critic">⚖️ Critic</th>
+                                    <th colspan="6" class="group-strategist">👨‍🔬 Strategist</th>
+                                    <th class="group-prophet">🔮 Prophet</th>
                                     <th colspan="2" class="group-bullbear">🐂🐻 Bull/Bear</th>
-                                    <th colspan="3" class="group-guardian">🛡️ Risk</th>
+                                    <th colspan="3" class="group-guardian">🛡️ Guardian</th>
                                 </tr>
                                 <!-- Column Header Row -->
                                 <tr>
-                                    <th title="Time">Time</th>
-                                    <th title="Cycle">Cycle</th>
-                                    <th title="Symbol">Symbol</th>
-                                    <th title="Action">Action</th>
-                                    <th title="Confidence">Conf</th>
-                                    <th title="Short Reason">Reason</th>
+                                    <th title="决策生成时间">Time</th>
+                                    <th title="循环次数">Cycle</th>
+                                    <th title="交易对">Symbol</th>
+                                    <th title="最终决策动作 (LONG/SHORT/HOLD/WAIT)">Result</th>
+                                    <th title="信心度 (0-100%)">Conf</th>
+                                    <th title="决策原因详细说明 (悬停查看完整)">Reason</th>
 
-                                    <th title="1h Signal (Trend/Osc)">1h</th>
-                                    <th title="15m Signal (Trend/Osc)">15m</th>
-                                    <th title="5m Signal (Trend/Osc)">5m</th>
-                                    <th title="Sentiment Score">Sent</th>
+                                    <th title="1小时周期信号 (趋势T + 震荡O)">1h</th>
+                                    <th title="15分钟周期信号 (趋势T + 震荡O)">15m</th>
+                                    <th title="5分钟周期信号 (趋势T + 震荡O)">5m</th>
+                                    <th title="情绪信号 (资金流向 + 资金费率)">Sent</th>
+                                    <th title="市场状态 (TREND_UP/TREND_DOWN/CHOPPY)">Regime</th>
+                                    <th title="价格位置 (HIGH/MIDDLE/LOW)">Position</th>
+                                    <th title="PredictAgent 上涨概率 (0-100%)">P(Up)</th>
+                                    <th title="🐂 Bull Agent 多头信心度 (0-100%)">🐂Bull</th>
+                                    <th title="🐻 Bear Agent 空头信心度 (0-100%)">🐻Bear</th>
+                                    <th title="风险等级 (SAFE/WARNING/DANGER)">Risk</th>
+                                    <th title="Guardian 审核结果 (✅通过 / ⛔拦截)">Guard</th>
+                                    <th title="多周期对齐状态 (✅一致 / ➖分歧)">Aligned</th>
 
-                                    <th title="Market Regime">Regime</th>
-                                    <th title="Market Position">Position</th>
-
-                                    <th title="ML Prediction Probability">Predict</th>
-
-                                    <th title="Bull Agent Stance">Bull</th>
-                                    <th title="Bear Agent Stance">Bear</th>
-
-                                    <th title="Risk Level">Risk</th>
-                                    <th title="Guardian Audit">Guard</th>
-                                    <th title="Multi-period Alignment">Aligned</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -265,14 +261,14 @@
                             <thead>
                                 <tr>
                                     <th title="交易记录时间">Time</th>
-                                    <th title="交易周期">Cycle</th>
+                                    <th title="开仓周期">Open</th>
+                                    <th title="平仓周期">Close</th>
                                     <th title="交易对">Symbol</th>
-                                    <th title="开仓价格">Entry</th>
+                                    <th title="开仓价格">Entry Price</th>
                                     <th title="持仓金额 (含杠杆)">Pos Value</th>
-                                    <th title="平仓价格">Exit</th>
+                                    <th title="平仓价格">Exit Price</th>
                                     <th title="盈亏金额">PnL</th>
                                     <th title="盈亏比例">PnL %</th>
-                                    <th title="状态">Status</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -286,13 +282,8 @@
             <!-- Row 3: Logs (Full Width) -->
             <section class="row-logs">
                 <div class="glass-panel card compound-card">
-                    <div class="compound-header"
-                        style="display: flex; justify-content: space-between; align-items: center;">
+                    <div class="compound-header">
                         <h2>📡 Live Log Output</h2>
-                        <label style="cursor: pointer; font-size: 0.9em; color: #a0aec0; user-select: none;">
-                            <input type="checkbox" id="verbose-logs" style="margin-right: 5px; cursor: pointer;">
-                            Detailed Logs
-                        </label>
                     </div>
                     <div class="compound-body split-log-view">
                         <!-- Documentation Sidebar -->

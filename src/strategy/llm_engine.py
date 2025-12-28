@@ -101,7 +101,7 @@ class StrategyEngine:
                 return self._get_fallback_decision(market_context_data)
         
         # 🐂🐻 Get adversarial perspectives first
-        log.info("🐂🐻 Analyzing Bull/Bear perspectives")
+        log.info("🐂🐻 Gathering Bull/Bear perspectives...")
         bull_perspective = self.get_bull_perspective(market_context_text)
         bear_perspective = self.get_bear_perspective(market_context_text)
         

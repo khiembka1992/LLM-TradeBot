@@ -56,9 +56,8 @@ class SharedState:
     demo_expired: bool = False  # True if 20 minutes exceeded
     demo_limit_seconds: int = 20 * 60  # 20 minutes in seconds
     
-    # Chart Data (with file persistence)
+    # Chart Data
     equity_history: List[Dict] = field(default_factory=list)  # [{'time': '12:00', 'value': 1000}, ...]
-    equity_history_file: str = "data/equity_history.json"  # Persistence file path
     
     # Latest Decision & History
     latest_decision: Dict[str, Any] = field(default_factory=dict)
@@ -73,28 +72,6 @@ class SharedState:
     last_reflection: Optional[Dict] = None
     last_reflection_text: Optional[str] = None
     
-    def load_equity_history(self):
-        """Load equity history from file on startup"""
-        import os
-        try:
-            if os.path.exists(self.equity_history_file):
-                with open(self.equity_history_file, 'r') as f:
-                    data = json.load(f)
-                    self.equity_history = data.get('history', [])
-                    log.info(f"📊 Loaded {len(self.equity_history)} equity history points from file")
-        except Exception as e:
-            log.warning(f"Failed to load equity history: {e}")
-    
-    def save_equity_history(self):
-        """Save equity history to file"""
-        import os
-        try:
-            os.makedirs(os.path.dirname(self.equity_history_file), exist_ok=True)
-            with open(self.equity_history_file, 'w') as f:
-                json.dump({'history': self.equity_history}, f)
-        except Exception as e:
-            log.warning(f"Failed to save equity history: {e}")
-
     def update_market(self, price: float, regime: str, position: str):
         self.current_price = price
         self.market_regime = regime
@@ -109,7 +86,12 @@ class SharedState:
             "total_pnl": pnl
         }
         # Add to history (Real-time PnL tracking)
+        # We want to capture volatility, so we log more frequently.
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Add point if history is empty or last point is older than 5 seconds to prevent flood
+        # For simplicity, we just check if timestamp is different (1s resolution) but maybe throttle slightly if needed.
+        # Let's just append. The frontend handles the curve.
         
         if not self.equity_history or self.equity_history[-1]['time'] != timestamp:
             self.equity_history.append({
@@ -118,50 +100,9 @@ class SharedState:
                 'cycle': self.cycle_counter
             })
             
-            # Keep last 500 points for more history
-            if len(self.equity_history) > 500:
+            # Keep last 200 points (e.g. ~10-20 mins of real-time data or 200 minutes of slow data)
+            if len(self.equity_history) > 200:
                 self.equity_history.pop(0)
-            
-            # 🆕 Save to file every 10 updates
-            if len(self.equity_history) % 10 == 0:
-                self.save_equity_history()
-    
-    
-    def add_trade(self, symbol: str, side: str, entry_price: float, quantity: float, 
-                  exit_price: float = 0, pnl: float = 0, status: str = 'open'):
-        """Add trade to history"""
-        from src.utils.logger import log
-        
-        # Calculate ROI
-        roi = 0.0
-        if status == 'closed' and entry_price > 0:
-            invested = entry_price * quantity
-            if invested > 0:
-                roi = pnl / invested
-
-        trade = {
-            'time': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"), # Frontend compat
-            'cycle': self.cycle_counter,
-            'open_cycle': self.cycle_counter, # Frontend compat
-            'symbol': symbol,
-            'side': side,
-            'entry_price': entry_price,
-            'exit_price': exit_price,
-            'close_price': exit_price, # Frontend compat
-            'quantity': quantity,
-            'pnl': pnl,
-            'realized_pnl': pnl, # Frontend compat
-            'roi': roi,
-            'status': status
-        }
-        self.trade_history.append(trade)
-        
-        log.info(f"📊 Trade recorded: {symbol} {side} (ROI: {roi*100:.2f}%) | Total trades: {len(self.trade_history)}")
-        
-        # Keep last 100 trades
-        if len(self.trade_history) > 100:
-            self.trade_history.pop(0)
 
     def _serialize_obj(self, obj):
         """Recursively serialize non-JSON-compatible types (datetime, numpy, pd.Timestamp)"""

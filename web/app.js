@@ -38,20 +38,7 @@ function initChart() {
             scales: {
                 x: {
                     grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                    ticks: {
-                        color: '#94a3b8',
-                        maxTicksLimit: 8,           // Show max 8 labels
-                        autoSkip: true,              // Auto skip crowded labels
-                        maxRotation: 45,             // Rotate labels for long text
-                        callback: function (value, index, ticks) {
-                            // Only show time part (HH:MM) for cleaner display
-                            const label = this.getLabelForValue(value);
-                            if (label && label.includes(' ')) {
-                                return label.split(' ')[1] || label;  // Return time part
-                            }
-                            return label;
-                        }
-                    }
+                    ticks: { color: '#94a3b8' }
                 },
                 y: {
                     grid: { color: 'rgba(255, 255, 255, 0.05)' },
@@ -156,7 +143,8 @@ function updateDashboard() {
                 activeAccount = {
                     total_equity: va.current_balance + unrealized,
                     wallet_balance: va.current_balance,
-                    total_pnl: unrealized
+                    total_pnl: unrealized,
+                    initial_balance: va.initial_balance // ✅ Explicitly pass Initial Balance
                 };
 
                 // Convert virtual positions dict to array for UI
@@ -248,68 +236,6 @@ function applyDecisionFilters() {
 document.getElementById('filter-symbol')?.addEventListener('change', applyDecisionFilters);
 document.getElementById('filter-result')?.addEventListener('change', applyDecisionFilters);
 
-function renderTradeHistory(trades) {
-    const tbody = document.querySelector('#trade-table tbody');
-    if (!tbody) return;
-
-    tbody.innerHTML = trades.map(t => {
-        const time = t.timestamp || t.record_time || 'N/A';
-        // Show cycle number starting from 1, show '-' if 0 or undefined (means data missing)
-        const openCycle = t.open_cycle && t.open_cycle > 0 ? `#${t.open_cycle}` : '-';
-        const closeCycle = t.close_cycle && t.close_cycle > 0 ? `#${t.close_cycle}` : '-';
-
-        const symbol = t.symbol || 'BTC';
-        const action = (t.action || '').toUpperCase();
-
-        // Merge Side into Symbol
-        let sideBadge = '';
-        if (action.includes('LONG') || action.includes('BUY')) sideBadge = '<span class="value-tag bullish" style="font-size: 0.7em; padding: 2px 4px; margin-left: 4px;">LONG</span>';
-        else if (action.includes('SHORT') || action.includes('SELL')) sideBadge = '<span class="value-tag bearish" style="font-size: 0.7em; padding: 2px 4px; margin-left: 4px;">SHORT</span>';
-        else if (action.includes('CLOSE')) sideBadge = '<span class="value-tag neutral" style="font-size: 0.7em; padding: 2px 4px; margin-left: 4px;">CLOSE</span>';
-
-        // Formatting numbers
-        const fmtUsd = val => val ? '$' + Number(val).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '-';
-
-        const price = fmtUsd(t.price);
-        const cost = fmtUsd(t.cost);
-        const exit = Number(t.exit_price) > 0 ? fmtUsd(t.exit_price) : '-';
-
-        // PnL with Color
-        let pnlHtml = '-';
-        let pnlPctHtml = '-';
-        if (t.pnl !== undefined && t.pnl !== 0 && t.pnl !== '0.0') {
-            const val = Number(t.pnl);
-            const cls = val > 0 ? 'pos' : (val < 0 ? 'neg' : 'neutral');
-            const sign = val > 0 ? '+' : '';
-            pnlHtml = `<span class="val ${cls}">${sign}${val.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>`;
-
-            // Calculate PnL percentage based on cost
-            const costVal = Number(t.cost) || 0;
-            if (costVal > 0) {
-                const pctVal = (val / costVal) * 100;
-                const pctSign = pctVal > 0 ? '+' : '';
-                pnlPctHtml = `<span class="val ${cls}">${pctSign}${pctVal.toFixed(2)}%</span>`;
-            }
-        }
-
-        return `
-            <tr>
-                <td style="font-size: 0.9em; color: #a0aec0;">${time}</td>
-                <td style="font-weight: bold; color: #74b9ff;">${openCycle}</td>
-                <td style="font-weight: bold; color: #fd79a8;">${closeCycle}</td>
-                <td>
-                    <span style="font-weight: 600;">${symbol}</span>
-                    ${sideBadge}
-                </td>
-                <td>${price}</td>
-                <td>${cost}</td>
-                <td>${exit}</td>
-                <td>${pnlHtml}</td>
-                <td>${pnlPctHtml}</td>
-            </tr>
-        `;
-    }).join('');
-}
 
 
 
@@ -603,33 +529,52 @@ function renderAccount(account) {
 
     // Calculate based on Total PnL (Total PnL = Equity - Initial)
     // So: Initial = Equity - Total PnL
-    const initialBalance = account.total_equity - account.total_pnl;
+    let initialBalance;
+    if (account.initial_balance !== undefined) {
+        initialBalance = account.initial_balance;
+    } else {
+        initialBalance = account.total_equity - account.total_pnl;
+    }
 
-    setTxt('acc-initial', fmt(initialBalance));
-    setTxt('acc-equity', fmt(account.total_equity));
-    // setTxt('acc-wallet', fmt(account.wallet_balance)); // Removed from UI
+    const totalEquity = account.total_equity || 0;
+    const walletBalance = account.wallet_balance || 0;
+    const totalPnl = account.total_pnl || 0;
 
-    // Header equity also if exists
-    setTxt('header-equity', fmt(account.total_equity));
+    setTxt('account-total-equity', fmt(totalEquity));
+    setTxt('account-wallet-balance', fmt(walletBalance));
+    setTxt('account-initial-balance', fmt(initialBalance));
 
-    // PnL Styling with Percentage
-    const pnlEl = document.getElementById('acc-pnl');
-    if (pnlEl) {
-        const pnlAmount = fmt(account.total_pnl);
-
-        // Calculate percentage based on initial balance
-        let pnlPercentage = 0;
-        if (initialBalance > 0) {
-            pnlPercentage = ((account.total_pnl / initialBalance) * 100).toFixed(2);
+    // PnL calculation and styling
+    const pnlElement = document.getElementById('account-total-pnl');
+    if (pnlElement) {
+        pnlElement.textContent = fmt(totalPnl);
+        pnlElement.classList.remove('pos', 'neg', 'neutral');
+        if (totalPnl > 0) {
+            pnlElement.classList.add('pos');
+        } else if (totalPnl < 0) {
+            pnlElement.classList.add('neg');
+        } else {
+            pnlElement.classList.add('neutral');
         }
+    }
 
-        const sign = account.total_pnl > 0 ? '+' : '';
-
-        pnlEl.textContent = `${pnlAmount} (${sign}${pnlPercentage}%)`;
-
-        if (account.total_pnl > 0) pnlEl.className = 'val pos';
-        else if (account.total_pnl < 0) pnlEl.className = 'val neg';
-        else pnlEl.className = 'val neutral';
+    // PnL percentage calculation and styling
+    const pnlPctElement = document.getElementById('account-total-pnl-pct');
+    if (pnlPctElement && initialBalance > 0) {
+        const pnlPct = (totalPnl / initialBalance) * 100;
+        pnlPctElement.textContent = `${pnlPct.toFixed(2)}%`;
+        pnlPctElement.classList.remove('pos', 'neg', 'neutral');
+        if (pnlPct > 0) {
+            pnlPctElement.classList.add('pos');
+        } else if (pnlPct < 0) {
+            pnlPctElement.classList.add('neg');
+        } else {
+            pnlPctElement.classList.add('neutral');
+        }
+    } else if (pnlPctElement) {
+        pnlPctElement.textContent = '0.00%';
+        pnlPctElement.classList.remove('pos', 'neg', 'neutral');
+        pnlPctElement.classList.add('neutral');
     }
 }
 
@@ -863,64 +808,12 @@ function renderDecision(decision) {
 function renderLogs(logs) {
     const container = document.getElementById('logs-container');
     if (!container) return;
-    // 🆕 Check verbose mode toggle
-    const verboseCheckbox = document.getElementById('verbose-logs');
-    const isVerboseMode = verboseCheckbox ? verboseCheckbox.checked : false;
-
-    // 🆕 Filter logs based on mode
-    let filteredLogs = logs;
-    if (!isVerboseMode) {
-        // Summary mode: Show only agent outputs + ERROR/WARNING
-        filteredLogs = logs.filter(logLine => {
-            const cleanLine = logLine.replace(/\x1b\[[0-9;]*m/g, '');
-
-            // Always keep ERROR and WARNING logs
-            if (cleanLine.includes('ERROR') || cleanLine.includes('WARNING') || cleanLine.includes('⚠️') || cleanLine.includes('❌')) {
-                return true;
-            }
-
-            // Exclude verbose INFO logs (data fetching, initialization, etc.)
-            const excludePatterns = [
-                'Data fetched:',
-                'Starting Web Dashboard',
-                'System ready',
-                '启动持续',
-                '💰 Account Monitor',
-                'WebSocket',
-                'REST API',
-                'LightGBM',
-                '初始数据加载',
-                'Test Mode: Initializing'
-            ];
-
-            if (excludePatterns.some(pattern => cleanLine.includes(pattern))) {
-                return false;
-            }
-
-            // Keep important agent summaries and decision outputs
-            const keepPatterns = [
-                // Agent outputs
-                'The Oracle', 'The Strategist', 'The Critic', 'The Guardian', 'The Executor', 'The Prophet',
-                // Decision keywords
-                'Cycle #', 'Vote:', 'Result:', 'Command:', 'Best opportunity',
-                // Execution results
-                '🚀', '💰 [TEST]', 'Opened', 'Closed',
-                // Status indicators
-                '✅', '🚀', '💰', '📈', '📉', '🐂', '🐻',
-                '✅ 通过', '❌ BLOCKED', '🎯',
-                // Step markers
-                '[Step'
-            ];
-
-            return keepPatterns.some(pattern => cleanLine.includes(pattern));
-        });
-    }
 
     // Smart Scroll: Check if user is near bottom before update
     const isScrolledToBottom = container.scrollHeight - container.clientHeight <= container.scrollTop + 100;
     const previousScrollTop = container.scrollTop;
 
-    container.innerHTML = filteredLogs.map(logLine => {
+    container.innerHTML = logs.map(logLine => {
         // Strip ANSI colors
         let cleanLine = logLine.replace(/\x1b\[[0-9;]*m/g, '');
 
@@ -1828,42 +1721,3 @@ document.addEventListener('DOMContentLoaded', () => {
         refreshBtn.addEventListener('click', loadAccounts);
     }
 });
-
-function renderTradeHistory(history) {
-    const tbody = document.querySelector('#trade-table tbody');
-    if (!tbody) return;
-
-    tbody.innerHTML = history.slice().reverse().map(t => {
-        const fmt = num => `$${(num || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-        // PnL Class
-        const pnl = t.pnl || t.realized_pnl || 0;
-        let pnlClass = 'neutral';
-        if (pnl > 0) pnlClass = 'pos';
-        else if (pnl < 0) pnlClass = 'neg';
-
-        // PnL Percent
-        const pnlPct = t.roi ? (t.roi * 100).toFixed(2) + '%' : '0.00%';
-
-        // Position Value
-        const posValue = t.quantity ? (t.entry_price * t.quantity) : (t.position_value || 0);
-
-        // Status Badge
-        const status = t.status ? `<span class="badge ${t.status === 'open' ? 'badge-processing' : 'badge-completed'}">${t.status.toUpperCase()}</span>` : '';
-        const side = t.side ? `<span class="${t.side.toUpperCase() === 'LONG' ? 'pos' : 'neg'}" style="font-weight:bold">${t.side.toUpperCase()}</span>` : '';
-
-        return `
-            <tr>
-                <td style="font-size: 0.9em; color: #a0aec0;">${t.time || t.timestamp || '-'}</td>
-                <td>${t.cycle || t.open_cycle || '-'}</td>
-                <td style="font-weight:600;">${t.symbol} ${side}</td>
-                <td>${fmt(t.entry_price)}</td>
-                <td>${fmt(posValue)}</td>
-                <td>${t.exit_price > 0 ? fmt(t.exit_price) : '-'}</td>
-                <td class="${pnlClass}">${pnl !== 0 ? fmt(pnl) : '-'}</td>
-                <td class="${pnlClass}">${pnl !== 0 ? pnlPct : '-'}</td>
-                <td>${status}</td>
-            </tr>
-        `;
-    }).join('');
-}

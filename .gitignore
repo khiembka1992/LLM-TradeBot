@@ -63,8 +63,8 @@ data/**/*
 !tsconfig.json
 
 # 模型文件 (Model Files)
-/models/
-/models/**/*
+models/
+models/**/*
 *.pkl
 *.h5
 *.pt

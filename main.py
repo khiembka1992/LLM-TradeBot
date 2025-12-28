@@ -166,6 +166,7 @@ class MultiAgentTradingBot:
         self.risk_manager = RiskManager()
         self.execution_engine = ExecutionEngine(self.client, self.risk_manager)
         self.saver = DataSaver() # ✅ 初始化 Multi-Agent 数据保存器
+        global_state.saver = self.saver # ✅ 将 saver 共享到全局状态，供各 Agent 使用
         
         # ✅ 初始化多账户管理器
         self.account_manager = AccountManager()
@@ -434,15 +435,7 @@ class MultiAgentTradingBot:
             trend_score = quant_analysis.get('trend', {}).get('total_trend_score', 0)
             osc_score = quant_analysis.get('oscillator', {}).get('total_osc_score', 0)
             sent_score = quant_analysis.get('sentiment', {}).get('total_sentiment_score', 0)
-            
-            # Helper to format signal
-            def get_signal(score):
-                if score > 20: return "🐂 BULL"
-                if score < -20: return "🐻 BEAR"
-                return "➖ NEU"
-            
-            summary_msg = f"👨‍🔬 The Strategist: Trend={get_signal(trend_score)}({trend_score}) | Osc={get_signal(osc_score)}({osc_score}) | Sent={get_signal(sent_score)}({sent_score})"
-            global_state.add_log(summary_msg)
+            global_state.add_log(f"👨‍🔬 QuantAnalystAgent (The Strategist): Trend={trend_score:+.0f} | Osc={osc_score:+.0f} | Sent={sent_score:+.0f}")
             
             # Step 2.5: Prophet
             print("[Step 2.5/5] 🔮 预测预言家 (The Prophet) - 计算上涨概率...")
@@ -463,6 +456,346 @@ class MultiAgentTradingBot:
             
             # Save Prediction
             self.saver.save_prediction(asdict(predict_result), self.current_symbol, snapshot_id, cycle_id=cycle_id)
+            
+            # === 🎯 FOUR-LAYER STRATEGY FILTERING ===
+            print("[Step 2.75/5] 🎯 Four-Layer Strategy Filter - 多层验证中...")
+            
+            # Extract timeframe data
+            trend_6h = quant_analysis.get('timeframe_6h', {})
+            trend_2h = quant_analysis.get('timeframe_2h', {})
+            sentiment = quant_analysis.get('sentiment', {})
+            oi_fuel = sentiment.get('oi_fuel', {})
+            
+            # 🆕 Get Funding Rate for crowding detection
+            funding_rate = sentiment.get('details', {}).get('funding_rate', 0)
+            
+            # 🆕 Get ADX from RegimeDetector for trend strength validation
+            from src.agents.regime_detector import RegimeDetector
+            regime_detector = RegimeDetector()
+            df_1h = processed_dfs['1h']
+            regime_result = regime_detector.detect_regime(df_1h) if len(df_1h) >= 20 else {'adx': 20, 'regime': 'unknown'}
+            adx_value = regime_result.get('adx', 20)
+            
+            # Initialize filter results with enhanced fields
+            four_layer_result = {
+                'layer1_pass': False,
+                'layer2_pass': False,
+                'layer3_pass': False,
+                'layer4_pass': False,
+                'final_action': 'wait',
+                'blocking_reason': None,
+                'confidence_boost': 0,
+                'tp_multiplier': 1.0,
+                'sl_multiplier': 1.0,
+                # 🆕 Enhanced indicators
+                'adx': adx_value,
+                'funding_rate': funding_rate,
+                'regime': regime_result.get('regime', 'unknown')
+            }
+            
+            # Layer 1: 1h Trend + OI Fuel (Specification: EMA 20/60 on 1h data)
+            df_1h = processed_dfs['1h']
+            
+            # 🆕 Always extract and store EMA values for display (even if blocking)
+            if len(df_1h) >= 20:
+                close_1h = df_1h['close'].iloc[-1]
+                ema20_1h = df_1h['ema_20'].iloc[-1] if 'ema_20' in df_1h.columns else close_1h
+                ema60_1h = df_1h['ema_60'].iloc[-1] if 'ema_60' in df_1h.columns else close_1h
+                
+                # Store for user prompt display
+                four_layer_result['close_1h'] = close_1h
+                four_layer_result['ema20_1h'] = ema20_1h
+                four_layer_result['ema60_1h'] = ema60_1h
+            else:
+                close_1h = current_price
+                ema20_1h = current_price
+                ema60_1h = current_price
+                four_layer_result['close_1h'] = close_1h
+                four_layer_result['ema20_1h'] = ema20_1h
+                four_layer_result['ema60_1h'] = ema60_1h
+            
+            # Extract OI change and store immediately
+            oi_change = oi_fuel.get('oi_change_24h', 0)
+            four_layer_result['oi_change'] = oi_change
+            
+            # 🆕 DATA SANITY CHECKS - Flag statistically impossible values
+            data_anomalies = []
+            
+            # OI Change sanity check: > 200% is likely a data error
+            if abs(oi_change) > 200:
+                data_anomalies.append(f"OI_ANOMALY: {oi_change:.1f}% (>200% likely data error)")
+                log.warning(f"⚠️ DATA ANOMALY: OI Change {oi_change:.1f}% is abnormally high")
+                # Clamp to reasonable value for downstream logic
+                oi_change = max(min(oi_change, 100), -100)
+                four_layer_result['oi_change'] = oi_change
+                four_layer_result['oi_change_raw'] = oi_fuel.get('oi_change_24h', 0)  # Keep original
+            
+            # ADX sanity check: < 5 is likely calculation error or extreme edge case
+            if adx_value < 5:
+                data_anomalies.append(f"ADX_ANOMALY: {adx_value:.0f} (<5 may be unreliable)")
+                log.warning(f"⚠️ DATA ANOMALY: ADX {adx_value:.0f} is abnormally low")
+            
+            # Funding Rate sanity check: > 1% per 8h is extreme
+            if abs(funding_rate) > 1.0:
+                data_anomalies.append(f"FUNDING_ANOMALY: {funding_rate:.3f}% (extreme)")
+                log.warning(f"⚠️ DATA ANOMALY: Funding Rate {funding_rate:.3f}% is extreme")
+            
+            # 🆕 LOGIC PARADOX DETECTION - Contradictory data patterns
+            regime = regime_result.get('regime', 'unknown')
+            # Real paradox: trending regime with very low ADX (ADX < 15 means no trend)
+            if adx_value < 15 and regime in ['trending_up', 'trending_down']:
+                data_anomalies.append(f"LOGIC_PARADOX: ADX={adx_value:.0f} (no trend) + Regime={regime} (trending)")
+                log.warning(f"⚠️ LOGIC PARADOX: ADX={adx_value:.0f} indicates NO trend, but Regime={regime}. Forcing to choppy.")
+                # Force regime to 'choppy' when ADX is extremely low but regime says trending
+                four_layer_result['regime'] = 'choppy'
+                four_layer_result['regime_override'] = True
+            
+            # Store anomalies for LLM awareness
+            four_layer_result['data_anomalies'] = data_anomalies if data_anomalies else None
+            
+            # Now check if we have enough data for trend analysis
+            if len(df_1h) < 60:
+                log.warning(f"⚠️ Insufficient 1h data: {len(df_1h)} bars (need 60+)")
+                four_layer_result['blocking_reason'] = 'Insufficient 1h data'
+                trend_1h = 'neutral'
+            else:
+                # Specification: Close > EMA20 > EMA60 (long), Close < EMA20 < EMA60 (short)
+                if close_1h > ema20_1h > ema60_1h:
+                    trend_1h = 'long'
+                elif close_1h < ema20_1h < ema60_1h:
+                    trend_1h = 'short'
+                else:
+                    trend_1h = 'neutral'
+                
+                log.info(f"📊 1h EMA: Close=${close_1h:.2f}, EMA20=${ema20_1h:.2f}, EMA60=${ema60_1h:.2f} => {trend_1h.upper()}")
+            
+            if trend_1h == 'neutral':
+                four_layer_result['blocking_reason'] = 'No clear 1h trend (EMA 20/60)'
+                log.info("❌ Layer 1 FAIL: No clear trend")
+            # 🆕 ADX Weak Trend Filter - Even if EMA aligned, weak trend is not tradeable
+            elif adx_value < 20:
+                four_layer_result['blocking_reason'] = f"Weak Trend Strength (ADX {adx_value:.0f} < 20)"
+                log.info(f"❌ Layer 1 FAIL: ADX={adx_value:.0f} < 20, trend not strong enough")
+            elif trend_1h == 'long' and oi_change < -5.0:
+                four_layer_result['blocking_reason'] = f"OI Divergence: Trend UP but OI {oi_change:.1f}% (禁止开仓)"
+                log.warning(f"🚨 Layer 1 FAIL: OI Divergence - Price up but OI {oi_change:.1f}%")
+            elif trend_1h == 'short' and oi_change > 5.0:
+                four_layer_result['blocking_reason'] = f"OI Divergence: Trend DOWN but OI +{oi_change:.1f}% (禁止开仓)"
+                log.warning(f"🚨 Layer 1 FAIL: OI Divergence - Price down but OI +{oi_change:.1f}%")
+            # Specification: Weak Fuel - abs(OI) < 1.0% means low volatility, not worth trading
+            elif abs(oi_change) < 1.0:
+                four_layer_result['blocking_reason'] = f"Weak Fuel (OI {oi_change:.1f}% < 1%)"
+                log.info(f"❌ Layer 1 FAIL: Weak fuel - OI change too low")
+            elif trend_1h == 'long' and oi_fuel.get('whale_trap_risk', False):
+                four_layer_result['blocking_reason'] = f"Whale trap detected (OI {oi_change:.1f}%)"
+                log.warning(f"🐋 Layer 1 FAIL: Whale exit trap")
+            else:
+                four_layer_result['layer1_pass'] = True
+                # Specification: Strong Fuel > 3%, Moderate 1-3%
+                fuel_strength = 'Strong' if abs(oi_change) > 3.0 else 'Moderate'
+                log.info(f"✅ Layer 1 PASS: {trend_1h.upper()} trend + {fuel_strength} Fuel (OI {oi_change:+.1f}%)")
+                
+                # Layer 2: AI Prediction Filter
+                from src.agents.ai_filter import AIPredictionFilter
+                ai_filter = AIPredictionFilter()
+                ai_check = ai_filter.check_divergence(trend_1h, predict_result)
+                
+                four_layer_result['ai_check'] = ai_check
+                
+                # 🆕 AI PREDICTION INVALIDATION: When ADX < 5, any directional AI prediction is noise
+                if adx_value < 5:
+                    ai_check['ai_invalidated'] = True
+                    ai_check['original_signal'] = ai_check.get('ai_signal', 'unknown')
+                    ai_check['ai_signal'] = 'INVALID (ADX<5)'
+                    four_layer_result['ai_prediction_note'] = f"AI prediction invalidated: ADX={adx_value:.0f} (<5), directional signals are statistically meaningless"
+                    log.warning(f"⚠️ AI prediction invalidated: ADX={adx_value:.0f} is too low for any directional signal to be reliable")
+                
+                if ai_check['ai_veto']:
+                    four_layer_result['blocking_reason'] = ai_check['reason']
+                    log.warning(f"🚫 Layer 2 VETO: {ai_check['reason']}")
+                else:
+                    four_layer_result['layer2_pass'] = True
+                    four_layer_result['confidence_boost'] = ai_check['confidence_boost']
+                    log.info(f"✅ Layer 2 PASS: AI {ai_check['ai_signal']} (boost: {ai_check['confidence_boost']:+d}%)")
+                    
+                    # Layer 3: 15m Setup (Specification: KDJ + Bollinger Bands)
+                    df_15m = processed_dfs['15m']
+                    if len(df_15m) < 20:
+                        log.warning(f"⚠️ Insufficient 15m data: {len(df_15m)} bars")
+                        four_layer_result['blocking_reason'] = 'Insufficient 15m data'
+                        setup_ready = False
+                    else:
+                        close_15m = df_15m['close'].iloc[-1]
+                        bb_middle = df_15m['bb_middle'].iloc[-1]
+                        bb_upper = df_15m['bb_upper'].iloc[-1]
+                        bb_lower = df_15m['bb_lower'].iloc[-1]
+                        kdj_j = df_15m['kdj_j'].iloc[-1]
+                        kdj_k = df_15m['kdj_k'].iloc[-1]
+                        
+                        log.info(f"📊 15m Setup: Close=${close_15m:.2f}, BB[{bb_lower:.2f}/{bb_middle:.2f}/{bb_upper:.2f}], KDJ_J={kdj_j:.1f}")
+                        
+                        # 🆕 Store setup details for display
+                        four_layer_result['setup_note'] = f"KDJ_J={kdj_j:.0f}, Close={'>' if close_15m > bb_middle else '<'}BB_mid"
+                        four_layer_result['kdj_j'] = kdj_j
+                        four_layer_result['bb_position'] = 'upper' if close_15m > bb_upper else 'lower' if close_15m < bb_lower else 'middle'
+                        
+                        # Specification logic for long setup
+                        if trend_1h == 'long':
+                            # Filter: Too high (overbought)
+                            if close_15m > bb_upper or kdj_j > 80:
+                                setup_ready = False
+                                four_layer_result['blocking_reason'] = f"15m overbought (J={kdj_j:.0f} or Close>{bb_upper:.0f})"
+                                log.info(f"⏳ Layer 3 WAIT: Overbought - J={kdj_j:.0f}, Close vs BB_upper")
+                            # Ready: Pullback position
+                            elif close_15m < bb_middle or kdj_j < 40:
+                                setup_ready = True
+                                log.info(f"✅ Layer 3 READY: Pullback - J={kdj_j:.0f} < 40 or Close < BB_middle")
+                            else:
+                                setup_ready = False
+                                four_layer_result['blocking_reason'] = f"15m neutral position (J={kdj_j:.0f})"
+                                log.info(f"⏳ Layer 3 WAIT: Neutral - J={kdj_j:.0f} (need < 40)")
+                        
+                        # Specification logic for short setup
+                        elif trend_1h == 'short':
+                            # Filter: Too low (oversold)
+                            if close_15m < bb_lower or kdj_j < 20:
+                                setup_ready = False
+                                four_layer_result['blocking_reason'] = f"15m oversold (J={kdj_j:.0f} or Close<{bb_lower:.0f})"
+                            # Ready: Rally position
+                            elif close_15m > bb_middle or kdj_j > 60:
+                                setup_ready = True
+                                log.info(f"✅ Layer 3 READY: Rally - J={kdj_j:.0f} > 60 or Close > BB_middle")
+                            else:
+                                setup_ready = False
+                                four_layer_result['blocking_reason'] = f"15m neutral position (J={kdj_j:.0f})"
+                        else:
+                            setup_ready = False
+                    
+                    if not setup_ready:
+                        four_layer_result['blocking_reason'] = f"15m setup not ready"
+                        log.info(f"⏳ Layer 3 WAIT: 15m setup not ready")
+                    else:
+                        four_layer_result['layer3_pass'] = True
+                        log.info(f"✅ Layer 3 PASS: 15m setup ready")
+                        
+                        # Layer 4: 5min Trigger + Sentiment Risk (Specification Module 4)
+                        from src.agents.trigger_detector import TriggerDetector
+                        trigger_detector = TriggerDetector()
+                        
+                        df_5m = processed_dfs['5m']
+                        trigger_result = trigger_detector.detect_trigger(df_5m, direction=trend_1h)
+                        
+                        # 🆕 Always store trigger data for LLM display
+                        four_layer_result['trigger_pattern'] = trigger_result.get('pattern_type') or 'None'
+                        four_layer_result['trigger_rvol'] = trigger_result.get('rvol', 1.0)
+                        
+                        if not trigger_result['triggered']:
+                            four_layer_result['blocking_reason'] = f"5min trigger not confirmed (RVOL={trigger_result.get('rvol', 1.0):.1f}x)"
+                            log.info(f"⏳ Layer 4 WAIT: No engulfing or breakout pattern (RVOL={trigger_result.get('rvol', 1.0):.1f}x)")
+                        else:
+                            log.info(f"🎯 Layer 4 TRIGGER: {trigger_result['pattern_type']} detected")
+                            
+                            # Sentiment Risk Adjustment (Specification: Score range -100 to +100)
+                            # Normal zone: -60 to +60
+                            # Extreme Greed: > +80 => TP减半 (防止随时崩盘)
+                            # Extreme Fear: < -80 => 可适当放大仓位/TP
+                            sentiment_score = sentiment.get('total_sentiment_score', 0)
+                            
+                            if sentiment_score > 80:  # Extreme Greed
+                                four_layer_result['tp_multiplier'] = 0.5  # 止盈减半
+                                four_layer_result['sl_multiplier'] = 1.0  # 止损不变
+                                log.warning(f"🔴 Extreme Greed ({sentiment_score:.0f}): TP目标减半")
+                            elif sentiment_score < -80:  # Extreme Fear
+                                four_layer_result['tp_multiplier'] = 1.5  # 可加大TP
+                                four_layer_result['sl_multiplier'] = 0.8  # 缩小SL
+                                log.info(f"🟢 Extreme Fear ({sentiment_score:.0f}): 贪婪时恐惧模式")
+                            else:
+                                four_layer_result['tp_multiplier'] = 1.0
+                                four_layer_result['sl_multiplier'] = 1.0
+                            
+                            # 🆕 Funding Rate Crowding Adjustment
+                            if trend_1h == 'long' and funding_rate > 0.05:
+                                four_layer_result['tp_multiplier'] *= 0.7
+                                log.warning(f"💰 High Funding Rate ({funding_rate:.3f}%): Longs crowded, TP reduced")
+                            elif trend_1h == 'short' and funding_rate < -0.05:
+                                four_layer_result['tp_multiplier'] *= 0.7
+                                log.warning(f"💰 Negative Funding Rate ({funding_rate:.3f}%): Shorts crowded, TP reduced")
+                            
+                            four_layer_result['layer4_pass'] = True
+                            four_layer_result['final_action'] = trend_1h
+                            four_layer_result['trigger_pattern'] = trigger_result['pattern_type']
+                            log.info(f"✅ Layer 4 PASS: Sentiment {sentiment_score:.0f}, Trigger={trigger_result['pattern_type']}")
+                            log.info(f"🎯 ALL LAYERS PASSED: {trend_1h.upper()} with {70 + four_layer_result['confidence_boost']}% confidence")
+            
+            # Store for LLM context
+            global_state.four_layer_result = four_layer_result
+            
+            # 🆕 MULTI-AGENT SEMANTIC ANALYSIS
+            print("[Step 2.5/5] 🤖 Multi-Agent Semantic Analysis...")
+            try:
+                from src.agents.trend_agent import TrendAgent
+                from src.agents.setup_agent import SetupAgent
+                from src.agents.trigger_agent import TriggerAgent
+                
+                # Initialize agents (cached after first use)
+                if not hasattr(self, '_trend_agent'):
+                    self._trend_agent = TrendAgent()
+                    self._setup_agent = SetupAgent()
+                    self._trigger_agent = TriggerAgent()
+                
+                # Prepare data for each agent
+                trend_data = {
+                    'symbol': self.current_symbol,
+                    'close_1h': four_layer_result.get('close_1h', current_price),
+                    'ema20_1h': four_layer_result.get('ema20_1h', current_price),
+                    'ema60_1h': four_layer_result.get('ema60_1h', current_price),
+                    'oi_change': four_layer_result.get('oi_change', 0),
+                    'adx': four_layer_result.get('adx', 20),
+                    'regime': four_layer_result.get('regime', 'unknown')
+                }
+                
+                setup_data = {
+                    'symbol': self.current_symbol,
+                    'close_15m': processed_dfs['15m']['close'].iloc[-1] if len(processed_dfs['15m']) > 0 else current_price,
+                    'kdj_j': four_layer_result.get('kdj_j', 50),
+                    'kdj_k': processed_dfs['15m']['kdj_k'].iloc[-1] if 'kdj_k' in processed_dfs['15m'].columns else 50,
+                    'bb_upper': processed_dfs['15m']['bb_upper'].iloc[-1] if 'bb_upper' in processed_dfs['15m'].columns else current_price * 1.02,
+                    'bb_middle': processed_dfs['15m']['bb_middle'].iloc[-1] if 'bb_middle' in processed_dfs['15m'].columns else current_price,
+                    'bb_lower': processed_dfs['15m']['bb_lower'].iloc[-1] if 'bb_lower' in processed_dfs['15m'].columns else current_price * 0.98,
+                    'trend_direction': four_layer_result.get('final_action', 'neutral')
+                }
+                
+                trigger_data = {
+                    'symbol': self.current_symbol,
+                    'pattern': four_layer_result.get('trigger_pattern'),
+                    'rvol': four_layer_result.get('trigger_rvol', 1.0),
+                    'trend_direction': four_layer_result.get('final_action', 'neutral')
+                }
+                
+                # Run agents in parallel using asyncio
+                loop = asyncio.get_event_loop()
+                trend_analysis, setup_analysis, trigger_analysis = await asyncio.gather(
+                    loop.run_in_executor(None, self._trend_agent.analyze, trend_data),
+                    loop.run_in_executor(None, self._setup_agent.analyze, setup_data),
+                    loop.run_in_executor(None, self._trigger_agent.analyze, trigger_data)
+                )
+                
+                # Store semantic analyses in global_state
+                global_state.semantic_analyses = {
+                    'trend': trend_analysis,
+                    'setup': setup_analysis,
+                    'trigger': trigger_analysis
+                }
+                
+                log.info(f"✅ Multi-Agent analysis completed: Trend={len(trend_analysis)}chars, Setup={len(setup_analysis)}chars, Trigger={len(trigger_analysis)}chars")
+                
+            except Exception as e:
+                log.error(f"❌ Multi-Agent analysis failed: {e}")
+                global_state.semantic_analyses = {
+                    'trend': f"Trend analysis unavailable: {e}",
+                    'setup': f"Setup analysis unavailable: {e}",
+                    'trigger': f"Trigger analysis unavailable: {e}"
+                }
             
             # Step 3: DeepSeek
             market_data = {
@@ -907,18 +1240,8 @@ class MultiAgentTradingBot:
                             
                             # Remove position
                             del global_state.virtual_positions[self.current_symbol]
-                            log.info(f"💰 [TEST] Closed {side} {self.current_symbol}: PnL=${realized_pnl:.2f}, Bal=${global_state.virtual_balance:.2f}")
                             
-                            # 🆕 Record trade in global_state
-                            global_state.add_trade(
-                                symbol=self.current_symbol,
-                                side=side,
-                                entry_price=pos['entry_price'],
-                                quantity=pos['quantity'],
-                                exit_price=exit_test_price,
-                                pnl=realized_pnl,
-                                status='closed'
-                            )
+                            log.info(f"💰 [TEST] Closed {side} {self.current_symbol}: PnL=${realized_pnl:.2f}, Bal=${global_state.virtual_balance:.2f}")
                         else:
                             log.warning(f"⚠️ [TEST] Close ignored - No position for {self.current_symbol}")
                     
@@ -935,15 +1258,6 @@ class MultiAgentTradingBot:
                             'leverage': order_params.get('leverage', 1)
                         }
                         log.info(f"💰 [TEST] Opened {side} {self.current_symbol} @ ${current_price:,.2f}")
-                        
-                        # 🆕 Record trade in global_state
-                        global_state.add_trade(
-                            symbol=self.current_symbol,
-                            side=side,
-                            entry_price=current_price,
-                            quantity=order_params['quantity'],
-                            status='open'
-                        )
 
                 # ✅ Save Trade in persistent history
                 # Logic Update: If CLOSING, try to update previous OPEN record. If failing, save new.
@@ -1388,8 +1702,8 @@ class MultiAgentTradingBot:
         macd_15m = trend.get('details', {}).get('15m_macd_diff')
         macd_semantic = SemanticConverter.get_macd_semantic(macd_15m)
         
-        volume_surge = sentiment.get('volume_surge_pct', 0)
-        volume_semantic = "Strong Surge" if volume_surge > 50 else "Moderate" if volume_surge > 20 else "Weak" if volume_surge > 0 else "Declining"
+        oi_change = sentiment.get('oi_change_24h_pct')
+        oi_semantic = SemanticConverter.get_oi_change_semantic(oi_change)
         
         # 市场状态与价格位置
         regime_type = "Unknown"
@@ -1430,37 +1744,100 @@ class MultiAgentTradingBot:
 """
         
         context = f"""
-## 1. Price Overview
-- Current Price: ${current_price:,.2f}
+## 1. Price & Position Overview
 - Symbol: {self.current_symbol}
+- Current Price: ${current_price:,.2f}
 
 {position_section}
 
-## 2. Trend Analysis
-- 1h Trend: {t_1h_sem} (Score: {fmt_val(t_1h_score, "{:.0f}")})
-- 15m Trend: {t_15m_sem} (Score: {fmt_val(t_15m_score, "{:.0f}")})
-- 5m Trend: {t_5m_sem} (Score: {fmt_val(t_5m_score, "{:.0f}")})
-- Total Trend Score: {fmt_val(t_score_total, "{:.0f}")} (Range: -100 to +100) => {t_semantic}
+## 2. Four-Layer Strategy Status
+"""
+        # Build four-layer status summary with smart grouping
+        blocking_reason = global_state.four_layer_result.get('blocking_reason', 'None')
+        layer1_pass = global_state.four_layer_result.get('layer1_pass')
+        layer2_pass = global_state.four_layer_result.get('layer2_pass')
+        layer3_pass = global_state.four_layer_result.get('layer3_pass')
+        layer4_pass = global_state.four_layer_result.get('layer4_pass')
+        
+        layer_status = []
+        
+        # Smart grouping: if both Layer 1 and 2 fail with same reason, merge them
+        if not layer1_pass and not layer2_pass:
+            layer_status.append(f"❌ **Layers 1-2 BLOCKED**: {blocking_reason}")
+        else:
+            if layer1_pass:
+                layer_status.append("✅ **Trend/Fuel**: PASS")
+            else:
+                layer_status.append(f"❌ **Trend/Fuel**: FAIL - {blocking_reason}")
+            
+            if layer2_pass:
+                layer_status.append("✅ **AI Filter**: PASS")
+            else:
+                layer_status.append(f"❌ **AI Filter**: VETO - {blocking_reason}")
+        
+        # Layer 3 & 4
+        layer_status.append(f"{'✅' if layer3_pass else '⏳'} **Setup (15m)**: {'READY' if layer3_pass else 'WAIT'}")
+        layer_status.append(f"{'✅' if layer4_pass else '⏳'} **Trigger (5m)**: {'CONFIRMED' if layer4_pass else 'WAITING'}")
+        
+        # Add risk adjustment
+        tp_mult = global_state.four_layer_result.get('tp_multiplier', 1.0)
+        sl_mult = global_state.four_layer_result.get('sl_multiplier', 1.0)
+        if tp_mult != 1.0 or sl_mult != 1.0:
+            layer_status.append(f"⚖️ **Risk Adjustment**: TP x{tp_mult} | SL x{sl_mult}")
+        
+        context += "\n".join(layer_status)
+        
+        # Add data anomaly warning
+        if global_state.four_layer_result.get('data_anomalies'):
+            anomalies = ', '.join(global_state.four_layer_result.get('data_anomalies', []))
+            context += f"\n\n⚠️ **DATA ANOMALY**: {anomalies}"
 
-## 3. Oscillators
-- RSI (15m): {fmt_val(rsi_15m)} => {rsi_1m_semantic}
-- RSI (1h): {fmt_val(rsi_1h)} => {rsi_1h_semantic}
-- MACD (15m): {fmt_val(macd_15m, "{:.4f}")} => {macd_semantic}
-- Total Oscillator Score: {fmt_val(o_score_total, "{:.0f}")} (Range: -100 to +100) => {o_semantic}
+        context += "\n\n## 3. Multi-Agent Semantic Analysis (Deep Dive)\n"
+        
+        # Extract analysis results
+        trend_result = getattr(global_state, 'semantic_analyses', {}).get('trend', {})
+        setup_result = getattr(global_state, 'semantic_analyses', {}).get('setup', {})
+        trigger_result = getattr(global_state, 'semantic_analyses', {}).get('trigger', {})
+        
+        # Trend Agent
+        if isinstance(trend_result, dict):
+            trend_analysis = trend_result.get('analysis', 'Not available')
+            trend_stance = trend_result.get('stance', 'UNKNOWN')
+            trend_meta = trend_result.get('metadata', {})
+            trend_header = f"### 🔮 TREND AGENT [{trend_stance}] (Strength: {trend_meta.get('strength', 'N/A')}, ADX: {trend_meta.get('adx', 'N/A')})"
+        else:
+            trend_analysis = trend_result if trend_result else 'Not available'
+            trend_header = "### 🔮 TREND AGENT"
+            
+        # Setup Agent
+        if isinstance(setup_result, dict):
+            setup_analysis = setup_result.get('analysis', 'Not available')
+            setup_stance = setup_result.get('stance', 'UNKNOWN')
+            setup_meta = setup_result.get('metadata', {})
+            setup_header = f"### 📊 SETUP AGENT [{setup_stance}] (Zone: {setup_meta.get('zone', 'N/A')}, KDJ: {setup_meta.get('kdj_j', 'N/A')})"
+        else:
+            setup_analysis = setup_result if setup_result else 'Not available'
+            setup_header = "### 📊 SETUP AGENT"
 
-## 4. Market Sentiment
-- Volume Surge (1h): {fmt_val(volume_surge)}% => {volume_semantic}
-- Total Sentiment Score: {fmt_val(s_score_total, "{:.0f}")} (Range: -100 to +100) => {s_semantic}
+        # Trigger Agent
+        if isinstance(trigger_result, dict):
+            trigger_analysis = trigger_result.get('analysis', 'Not available')
+            trigger_stance = trigger_result.get('stance', 'UNKNOWN')
+            trigger_meta = trigger_result.get('metadata', {})
+            trigger_header = f"### ⚡ TRIGGER AGENT [{trigger_stance}] (Pattern: {trigger_meta.get('pattern', 'NONE')}, RVOL: {trigger_meta.get('rvol', 'N/A')}x)"
+        else:
+            trigger_analysis = trigger_result if trigger_result else 'Not available'
+            trigger_header = "### ⚡ TRIGGER AGENT"
 
-## 5. AI Prediction (Prophet)
-- Forecast: {prediction_desc}
-- Signal: {prophet_signal}
-- Confidence: {predict_result.confidence:.0%}
-
-## 6. Market Regime & Price Position
-- Market Regime: {regime_type.upper()} (Confidence: {min(max(regime_confidence, 0), 100):.0f}%)
-- Price Position: {price_position.upper()} ({min(max(price_position_pct, 0), 100):.1f}% of recent range)
-- Note: Position near extremes (0-20% or 80-100%) suggests potential reversal zones
+        context += f"\n{trend_header}\n{trend_analysis}\n"
+        context += f"\n{setup_header}\n{setup_analysis}\n"
+        context += f"\n{trigger_header}\n{trigger_analysis}\n"
+        
+        context += f"""
+---
+## 4. Market Regime & Price Position (Auxiliary)
+- Market Regime: {regime_type.upper()} ({min(max(regime_confidence, 0), 100):.0f}% confidence)
+- Price Position: {price_position.upper()} ({min(max(price_position_pct, 0), 100):.1f}% of range)
 {self._format_choppy_analysis(regime_info)}
 """
         return context

@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from src.api.binance_client import BinanceClient
 from src.api.quant_client import quant_client
 from src.utils.logger import log
+from src.utils.oi_tracker import oi_tracker
 
 
 @dataclass
@@ -27,11 +28,11 @@ class MarketSnapshot:
     """
     市场快照（双视图结构）
     
-    stable_view: iloc[:-1] completed的K线，用于计算历史指标
+    stable_view: iloc[:-1] 已完成的K线，用于计算历史指标
     live_view: iloc[-1] 当前未完成的K线，包含最新价格
     """
     # 5m 数据
-    stable_5m: pd.DataFrame  # completedK线
+    stable_5m: pd.DataFrame  # 已完成K线
     live_5m: Dict            # 最新K线
     
     # 15m 数据
@@ -45,13 +46,14 @@ class MarketSnapshot:
     # 元数据
     timestamp: datetime
     alignment_ok: bool       # 时间对齐状态
-    fetch_duration: float    # 获取duration（s）
+    fetch_duration: float    # 获取耗时（秒）
     
     # 对外量化深度数据 (Netflow, OI)
     quant_data: Dict = field(default_factory=dict)
     
     # Binance 原生数据 (Native Data)
     binance_funding: Dict = field(default_factory=dict)
+    binance_oi: Dict = field(default_factory=dict)
     
     # 原始数据（可选，用于调试）
     raw_5m: List[Dict] = field(default_factory=list)
@@ -94,13 +96,13 @@ class DataSyncAgent:
                 self.ws_manager.start()
                 log.info("🚀 WebSocket 数据流已启用")
             except Exception as e:
-                log.warning(f"WebSocket startup failed，falling back to REST API: {e}")
+                log.warning(f"WebSocket 启动失败，回退到 REST API: {e}")
                 self.use_websocket = False
         else:
-            log.info("📡 使用 REST API Mode（WebSocket 已禁用）")
+            log.info("📡 使用 REST API 模式（WebSocket 已禁用）")
         
         self.last_snapshot = None
-        log.info("🕵️ The Oracle initialized")
+        log.info("🕵️ 数据先知 (The Oracle) 初始化完成")
     
     async def fetch_all_timeframes(
         self,
@@ -123,9 +125,9 @@ class DataSyncAgent:
         
         use_rest_fallback = False
         
-        # WebSocket Mode：从cache获取数据
+        # WebSocket 模式：从缓存获取数据
         if self.use_websocket and self.ws_manager and self._initial_load_complete:
-            # 从 WebSocket cache获取数据
+            # 从 WebSocket 缓存获取数据
             k5m = self.ws_manager.get_klines('5m', limit)
             k15m = self.ws_manager.get_klines('15m', limit)
             k1h = self.ws_manager.get_klines('1h', limit)
@@ -133,16 +135,19 @@ class DataSyncAgent:
             # 检查数据是否足够
             min_len = min(len(k5m), len(k15m), len(k1h))
             if min_len < limit:
-                log.warning(f"[{symbol}] WebSocket cache数据不足 (min={min_len}, limit={limit})，falling back to REST API")
+                log.warning(f"[{symbol}] WebSocket 缓存数据不足 (min={min_len}, limit={limit})，回退到 REST API")
                 use_rest_fallback = True
             else:
                 # 仍需异步获取外部数据
                 q_data = await quant_client.fetch_coin_data(symbol)
                 loop = asyncio.get_event_loop()
-                b_funding = await loop.run_in_executor(None, self.client.get_funding_rate_with_cache, symbol)
+                b_funding, b_oi = await asyncio.gather(
+                    loop.run_in_executor(None, self.client.get_funding_rate_with_cache, symbol),
+                    loop.run_in_executor(None, self.client.get_open_interest, symbol)
+                )
 
         if not self.use_websocket or not self.ws_manager or not self._initial_load_complete or use_rest_fallback:
-            # REST API Mode或首次加载 / 回退Mode
+            # REST API 模式或首次加载 / 回退模式
             loop = asyncio.get_event_loop()
             
             tasks = [
@@ -166,21 +171,26 @@ class DataSyncAgent:
                     None,
                     self.client.get_funding_rate_with_cache,
                     symbol
+                ),
+                loop.run_in_executor(
+                    None,
+                    self.client.get_open_interest,
+                    symbol
                 )
             ]
             
             # 等待所有请求完成
-            k5m, k15m, k1h, q_data, b_funding = await asyncio.gather(*tasks)
+            k5m, k15m, k1h, q_data, b_funding, b_oi = await asyncio.gather(*tasks)
             
             log.info(f"[{symbol}] Data fetched: 5m={len(k5m)}, 15m={len(k15m)}, 1h={len(k1h)}")
             
             # 标记首次加载完成
             if not self._initial_load_complete:
                 self._initial_load_complete = True
-                log.info("✅ Initial data loaded，will use WebSocket cache")
+                log.info("✅ 初始数据加载完成，后续将使用 WebSocket 缓存")
         
         fetch_duration = (datetime.now() - start_time).total_seconds()
-        # log.oracle(f"✅ Data fetched，duration: {fetch_duration:.2f}s")
+        # log.oracle(f"✅ 数据获取完成，耗时: {fetch_duration:.2f}秒")
         
         # 拆分双视图
         snapshot = MarketSnapshot(
@@ -206,10 +216,19 @@ class DataSyncAgent:
             raw_15m=k15m,
             raw_1h=k1h,
             quant_data=q_data,
-            binance_funding=b_funding
+            binance_funding=b_funding,
+            binance_oi=b_oi
         )
         
-        # cache最新快照
+        # 🔮 记录 OI 到历史追踪器
+        if b_oi and b_oi.get('open_interest', 0) > 0:
+            oi_tracker.record(
+                symbol=symbol,
+                oi_value=b_oi['open_interest'],
+                timestamp=b_oi.get('timestamp')
+            )
+        
+        # 缓存最新快照
         self.last_snapshot = snapshot
         
         # 日志记录
@@ -270,7 +289,7 @@ class DataSyncAgent:
             t15m = k15m[-1]['timestamp']
             t1h = k1h[-1]['timestamp']
             
-            # 计算时间差（毫s）
+            # 计算时间差（毫秒）
             diff_5m_15m = abs(t5m - t15m)
             diff_5m_1h = abs(t5m - t1h)
             
@@ -298,27 +317,27 @@ class DataSyncAgent:
     def _log_snapshot_info(self, snapshot: MarketSnapshot):
         """记录快照信息"""
         log.oracle(f"📸 快照信息:")
-        log.oracle(f"  - 5m:  {len(snapshot.stable_5m)} completed + 1 live")
-        log.oracle(f"  - 15m: {len(snapshot.stable_15m)} completed + 1 live")
-        log.oracle(f"  - 1h:  {len(snapshot.stable_1h)} completed + 1 live")
+        log.oracle(f"  - 5m:  {len(snapshot.stable_5m)} 已完成 + 1 实时")
+        log.oracle(f"  - 15m: {len(snapshot.stable_15m)} 已完成 + 1 实时")
+        log.oracle(f"  - 1h:  {len(snapshot.stable_1h)} 已完成 + 1 实时")
         log.oracle(f"  - 时间对齐: {'✅' if snapshot.alignment_ok else '❌'}")
-        log.oracle(f"  - 获取duration: {snapshot.fetch_duration:.2f}s")
+        log.oracle(f"  - 获取耗时: {snapshot.fetch_duration:.2f}秒")
         
-        # 记录live价格
+        # 记录实时价格
         if snapshot.live_5m:
-            log.info(f"  - live价格 (5m): ${snapshot.live_5m.get('close', 0):,.2f}")
+            log.info(f"  - 实时价格 (5m): ${snapshot.live_5m.get('close', 0):,.2f}")
         if snapshot.live_1h:
-            log.info(f"  - live价格 (1h): ${snapshot.live_1h.get('close', 0):,.2f}")
+            log.info(f"  - 实时价格 (1h): ${snapshot.live_1h.get('close', 0):,.2f}")
     
     def get_live_price(self, timeframe: str = '5m') -> float:
         """
-        获取指定周期的live价格
+        获取指定周期的实时价格
         
         Args:
             timeframe: '5m', '15m', or '1h'
             
         Returns:
-            live收盘价
+            实时收盘价
         """
         if not self.last_snapshot:
             log.warning("⚠️ 无可用快照")
@@ -334,13 +353,13 @@ class DataSyncAgent:
     
     def get_stable_dataframe(self, timeframe: str = '5m') -> pd.DataFrame:
         """
-        获取指定周期的稳定DataFrame（completedK线）
+        获取指定周期的稳定DataFrame（已完成K线）
         
         Args:
             timeframe: '5m', '15m', or '1h'
             
         Returns:
-            completed的K线DataFrame
+            已完成的K线DataFrame
         """
         if not self.last_snapshot:
             log.warning("⚠️ 无可用快照")
@@ -367,7 +386,7 @@ async def test_data_sync_agent():
     snapshot = await agent.fetch_all_timeframes("BTCUSDT")
     
     print(f"\n✅ 数据获取成功")
-    print(f"  - duration: {snapshot.fetch_duration:.2f}s")
+    print(f"  - 耗时: {snapshot.fetch_duration:.2f}秒")
     print(f"  - 时间对齐: {snapshot.alignment_ok}")
     
     # 测试2: 验证双视图
@@ -376,8 +395,8 @@ async def test_data_sync_agent():
     print(f"  - Live 5m keys: {list(snapshot.live_5m.keys())}")
     print(f"  - Live 5m price: ${snapshot.live_5m.get('close', 0):,.2f}")
     
-    # 测试3: 获取live价格
-    print("\n[测试3] 获取live价格...")
+    # 测试3: 获取实时价格
+    print("\n[测试3] 获取实时价格...")
     for tf in ['5m', '15m', '1h']:
         price = agent.get_live_price(tf)
         print(f"  - {tf}: ${price:,.2f}")

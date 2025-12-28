@@ -22,14 +22,9 @@ from src.utils.logger import log
 try:
     import lightgbm as lgb
     HAS_LIGHTGBM = True
-except (ImportError, OSError) as e:
+except (ImportError, OSError):
     HAS_LIGHTGBM = False
-    # Simplified logging - only show error type, not full path list
-    error_type = type(e).__name__
-    if 'libomp' in str(e):
-        log.warning(f"LightGBM unavailable: missing libomp library. Install with: brew install libomp")
-    else:
-        log.warning(f"LightGBM unavailable: {error_type}. Using rule-based scoring mode.")
+    log.warning("LightGBM 未安装，将使用规则评分模式")
 
 
 class ProphetMLModel:

@@ -99,9 +99,6 @@ class TrendAgent:
                 strength = 'MODERATE'
             else:
                 strength = 'WEAK'
-                # 🆕 Force Neutral on Weak Trend (ADX < 20)
-                # Regardless of EMA alignment, if ADX is < 20, it is NOT a trend.
-                stance = 'NEUTRAL'
             
             # Determine fuel status
             if abs(oi_change) > 3:
@@ -202,9 +199,7 @@ Price & EMA:
 - 1h Close: ${close:,.2f}
 - 1h EMA20: ${ema20:,.2f}
 - 1h EMA60: ${ema60:,.2f}
-- EMA Alignment: {ema_status}
-
-IMPORTANT: EMA Alignment is only valid if ADX > 20. If ADX < 20, the trend is nonexistent regardless of EMAs.
+- EMA Status: {ema_status}
 
 Open Interest:
 - OI Change (24h): {oi_change:+.1f}%
@@ -216,7 +211,7 @@ Trend Strength:
 
 Market Regime: {regime.upper()}
 
-Provide a 2-3 sentence semantic analysis of the trend situation. If ADX < 20, explicitly state that there is NO TREND despite any EMA alignment."""
+Provide a 2-3 sentence semantic analysis of the trend situation."""
 
     def _get_fallback_analysis(self, data: Dict) -> str:
         """Fallback analysis when LLM fails"""

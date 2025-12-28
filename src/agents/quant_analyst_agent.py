@@ -1,274 +1,117 @@
 """
-量化策略师 (The Strategist) Agent
+量化策略师 (The Strategist) Agent - 重构版
 
 职责：
-1. 趋势分析员：基于EMA/MACD计算趋势得分
-2. 震荡分析员：基于RSI/BB计算反转得分
-3. live价格修正：利用live_view更新指标
+按时间周期组织技术分析，而非按指标类型
+- 6小时分析：完整技术指标集
+- 2小时分析：完整技术指标集
+- 半小时分析：完整技术指标集
 
 优化点：
-- 得分制（-100~+100）替代布尔值
-- liveRSI计算（包含live K线）
-- 多指标加权
+- 时间周期为中心的组织方式
+- 便于LLM理解每个时间周期的完整技术面
+- 扩展指标集：EMA, MA, BOLL, RSI, MACD, KDJ, ATR, OBV
 """
 
 import pandas as pd
-import numpy as np
-from typing import Dict, Optional
-from ta.momentum import RSIIndicator
-from ta.trend import MACD, EMAIndicator
+from typing import Dict
+from dataclasses import asdict
 
 from src.agents.data_sync_agent import MarketSnapshot
+# from src.agents.timeframe_analyzer import TimeframeAnalyzer, TimeframeAnalysis  # Not needed - using real 1h/15m data
 from src.utils.logger import log
+from src.utils.oi_tracker import oi_tracker
 
 
-class TrendSubAgent:
+class QuantAnalystAgent:
     """
-    趋势分析员（子Agent）
+    量化策略师 (The Strategist)
     
-    职责：判断市场趋势方向和强度
-    输出：trend_score (-100 到 +100)
+    提供情绪分析和OI燃料验证
+    技术指标分析现在直接在main.py中使用真实1h/15m/5m数据
     """
     
-    def analyze(self, snapshot: MarketSnapshot) -> Dict:
+    def __init__(self):
+        """初始化量化策略师"""
+        log.info("👨‍🔬 量化策略师 (The Strategist) 初始化完成 - 简化模式")
+    
+    async def analyze_all_timeframes(self, snapshot: MarketSnapshot) -> Dict:
         """
-        计算趋势得分 (基于特定时间窗口)
-        1h Data (EMA24): Judge recent 1 day Trend (40%)
-        15m Data (EMA24): Judge recent 6 hours Trend (30%)
-        5m Data (EMA12): Judge recent 1 hour Trend (30%)
-        """
-        # Init specific scores to None
-        trend_1h_score = 0
-        trend_15m_score = 0
-        trend_5m_score = 0
-        details = {}
+        执行分析（简化版）
         
-        # Helper for Trend Logic
-        def calculate_trend(df, window, label, weight):
-            if df.empty or len(df) < window + 2:
-                return 0, "数据不足"
-                
-            # Calculate EMA for the specific window
-            ema_ind = EMAIndicator(close=df['close'], window=window)
-            ema_series = ema_ind.ema_indicator()
+        Args:
+            snapshot: 市场快照
             
-            current_price = df['close'].iloc[-1]
-            current_ema = ema_series.iloc[-1]
-            prev_ema = ema_series.iloc[-2]
-            
-            # Trend Determination
-            # Up: Price > EMA and EMA is rising
-            if current_price > current_ema and current_ema > prev_ema:
-                return weight, "上涨"
-            # Down: Price < EMA and EMA is falling
-            elif current_price < current_ema and current_ema < prev_ema:
-                return -weight, "下跌"
-            # Sideways: Mixed signals
-            else:
-                return 0, "震荡"
-
-        # 1. 1h Trend (Recent 1 Day -> 24 bars)
-        trend_1h_score, status_1h = calculate_trend(snapshot.stable_1h, 24, "1h", 40)
-        details['1h_trend'] = status_1h
-        
-        # 2. 15m Trend (Recent 6 Hours -> 24 bars)
-        trend_15m_score, status_15m = calculate_trend(snapshot.stable_15m, 24, "15m", 30)
-        details['15m_trend'] = status_15m
-        
-        # 3. 5m Trend (Recent 1 Hour -> 12 bars)
-        # Combine stable + live for most recent view
-        # But using stable is safer for EMA consistency.
-        trend_5m_score, status_5m = calculate_trend(snapshot.stable_5m, 12, "5m", 30)
-        # Rename output for consistency with prompt
-        details['5m_trend'] = status_5m
-        
-        # 4. Total Score
-        total_score = trend_1h_score + trend_15m_score + trend_5m_score
-        total_score = max(-100, min(100, total_score))
-        
-        return {
-            'score': total_score,
-            'details': details,
-            'confidence': abs(total_score),
-            'total_trend_score': total_score,
-            'trend_1h_score': trend_1h_score,
-            'trend_15m_score': trend_15m_score,
-            'trend_5m_score': trend_5m_score
-        }
-
-
-class OscillatorSubAgent:
-    """
-    震荡分析员（子Agent）
-    """
-    
-    def analyze(self, snapshot: MarketSnapshot) -> Dict:
-        details = {}
-        
-        # Init scores to None
-        osc_5m_score = None
-        osc_15m_score = None
-        osc_1h_score = None
-        
-        # 1. 5m RSI
-        stable_5m = snapshot.stable_5m
-        live_5m = snapshot.live_5m
-        
-        if not stable_5m.empty and live_5m:
-            df_with_live = stable_5m.copy()
-            live_row = pd.DataFrame([{
-                'open': float(live_5m.get('open', 0)),
-                'high': float(live_5m.get('high', 0)),
-                'low': float(live_5m.get('low', 0)),
-                'close': float(live_5m.get('close', 0)),
-                'volume': float(live_5m.get('volume', 0))
-            }])
-            df_with_live = pd.concat([df_with_live, live_row], ignore_index=True)
-            rsi_5m = RSIIndicator(close=df_with_live['close'], window=14).rsi()
-            live_rsi = rsi_5m.iloc[-1] if len(rsi_5m) > 0 else 50
-            
-            if live_rsi > 75: osc_5m_score = -80; rsi_status = "超买严重"
-            elif live_rsi < 25: osc_5m_score = +80; rsi_status = "超卖严重"
-            elif live_rsi > 65: osc_5m_score = -40; rsi_status = "轻度超买"
-            elif live_rsi < 35: osc_5m_score = +40; rsi_status = "轻度超卖"
-            else: osc_5m_score = 0; rsi_status = "中性"
-            
-            details['5m_rsi'] = float(live_rsi)
-            details['5m_status'] = rsi_status
-        
-        # 2. 15m RSI
-        stable_15m = snapshot.stable_15m
-        if not stable_15m.empty:
-            if 'rsi' in stable_15m.columns:
-                rsi_15m_val = stable_15m['rsi'].iloc[-1]
-            else:
-                rsi_15m_calc = RSIIndicator(close=stable_15m['close'], window=14).rsi()
-                rsi_15m_val = rsi_15m_calc.iloc[-1] if len(rsi_15m_calc) > 0 else 50
-            
-            if rsi_15m_val > 75: osc_15m_score = -60; details['15m_status'] = "超买"
-            elif rsi_15m_val < 25: osc_15m_score = +60; details['15m_status'] = "超卖"
-            elif rsi_15m_val > 65: osc_15m_score = -30; details['15m_status'] = "轻度超买"
-            elif rsi_15m_val < 35: osc_15m_score = +30; details['15m_status'] = "轻度超卖"
-            else: osc_15m_score = 0; details['15m_status'] = "中性"
-            
-            details['15m_rsi'] = float(rsi_15m_val)
-        
-        # 3. 1h RSI
-        stable_1h = snapshot.stable_1h
-        if not stable_1h.empty:
-            if 'rsi' in stable_1h.columns:
-                last_rsi_1h = stable_1h['rsi'].iloc[-1]
-            else:
-                rsi_1h = RSIIndicator(close=stable_1h['close'], window=14).rsi()
-                last_rsi_1h = rsi_1h.iloc[-1] if len(rsi_1h) > 0 else 50
-            
-            if last_rsi_1h > 80: osc_1h_score = -40; details['1h_warning'] = "1h级别超买"
-            elif last_rsi_1h < 20: osc_1h_score = +40; details['1h_warning'] = "1h级别超卖"
-            elif last_rsi_1h > 70: osc_1h_score = -20; details['1h_status'] = "1h轻度超买"
-            elif last_rsi_1h < 30: osc_1h_score = +20; details['1h_status'] = "1h轻度超卖"
-            else: osc_1h_score = 0; details['1h_status'] = "1h中性"
-            
-            details['1h_rsi'] = float(last_rsi_1h)
-        
-        # 4. 15m MACD
-        score_macd = 0
-        macd_val = 0
-        macd_signal = 0
-        
-        if not stable_15m.empty:
-            if 'macd' in stable_15m.columns and 'macd_signal' in stable_15m.columns:
-                macd_val = stable_15m['macd'].iloc[-1]
-                macd_signal = stable_15m['macd_signal'].iloc[-1]
-                macd_hist = stable_15m['macd_diff'].iloc[-1]
-            else:
-                # Fallback calculation
-                from ta.trend import MACD
-                macd = MACD(close=stable_15m['close'])
-                macd_val = macd.macd().iloc[-1] if len(stable_15m) > 0 else 0
-                macd_signal = macd.macd_signal().iloc[-1] if len(stable_15m) > 0 else 0
-                macd_hist = macd.macd_diff().iloc[-1] if len(stable_15m) > 0 else 0
-            
-            if macd_val > macd_signal:
-                score_macd = 15
-                details['macd_status'] = "金叉"
-            else:
-                score_macd = -15
-                details['macd_status'] = "死叉"
-                
-            # Histogram strength check
-            if abs(macd_hist) < 5:  # Weak momentum
-                score_macd = score_macd // 2
-                
-            details['macd_val'] = float(macd_val)
-            details['macd_signal_val'] = float(macd_signal)
-            details['macd_hist'] = float(macd_hist)
-        
-        # Calculate Total Score
-        total_score = None
-        # Require at least one valid indicator
-        if osc_1h_score is not None or osc_15m_score is not None:
-             # Weights: 5m(30%) + 15m(25%) + 1h(25%) + MACD(20%)
-             total_score = int(
-                 (osc_5m_score or 0) * 0.3 + 
-                 (osc_15m_score or 0) * 0.25 + 
-                 (osc_1h_score or 0) * 0.25 +
-                 (score_macd or 0) * 0.2
-             )
-             total_score = max(-100, min(100, total_score))
-        
-        return {
-            'score': total_score if total_score is not None else 0,
-            'details': details,
-            'confidence': abs(total_score) if total_score is not None else 0,
-            'total_osc_score': total_score if total_score is not None else 0,
-            'osc_5m_score': osc_5m_score if osc_5m_score is not None else 0,
-            'osc_15m_score': osc_15m_score if osc_15m_score is not None else 0,
-            'osc_1h_score': osc_1h_score if osc_1h_score is not None else 0,
-            'osc_macd_score': score_macd,
-            'rsi_5m': details.get('5m_rsi', 50),
-            'rsi_15m': details.get('15m_rsi', 50),
-            'rsi_1h': details.get('1h_rsi', 50),
-            'macd_15m': details.get('macd_val', 0),
-            'macd_signal_15m': details.get('macd_signal_val', 0)
-        }
-
-
-class SentimentSubAgent:
-    """
-    情绪分析员 (The Sentiment Analyst)
-    """
-    
-    @staticmethod
-    def _calculate_cvd(df: pd.DataFrame) -> float:
-        """
-        Calculate Cumulative Volume Delta (CVD) change
-        
-        CVD measures buying vs selling pressure:
-        - Positive delta = close > open (buying)
-        - Negative delta = close < open (selling)
-        
         Returns:
-            CVD change percentage over last 20 periods
+            分析结果字典
         """
-        if df is None or df.empty or len(df) < 20:
-            return 0.0
+        # 只提供情绪分析，技术分析在main.py中直接使用真实数据
+        sentiment = self._analyze_sentiment(snapshot)
         
-        # Calculate volume delta: positive when close > open
-        delta = df['volume'] * np.sign(df['close'] - df['open'])
-        cvd = delta.cumsum()
+        # 返回简化结果（保持向后兼容）
+        result = {
+            'sentiment': sentiment,
+            # 空的占位符，实际分析在main.py中进行
+            'timeframe_6h': {},
+            'timeframe_2h': {},
+            'timeframe_30m': {},
+            'trend': {'score': 0, 'details': {}},
+            'oscillator': {'score': 0, 'details': {}},
+            'overall_score': 0,
+        }
         
-        # Calculate change over last 20 periods
-        cvd_current = cvd.iloc[-1]
-        cvd_20_ago = cvd.iloc[-20]
-        
-        if abs(cvd_20_ago) > 0:
-            cvd_change_pct = (cvd_current - cvd_20_ago) / abs(cvd_20_ago) * 100
-        else:
-            cvd_change_pct = 0.0
-        
-        return cvd_change_pct
+        return result
     
     def analyze(self, snapshot: MarketSnapshot) -> Dict:
+        """
+        执行多时间周期技术分析
+        
+        Args:
+            snapshot: 市场快照（包含5m K线数据）
+            
+        Returns:
+            分析结果字典，按时间周期组织
+        """
+        df_5m = snapshot.stable_5m
+        current_price = snapshot.live_5m.get('close', df_5m['close'].iloc[-1] if not df_5m.empty else 0)
+        
+        # 执行三个时间周期的分析
+        analysis_6h = self.analyzer_6h.analyze(df_5m, current_price)
+        analysis_2h = self.analyzer_2h.analyze(df_5m, current_price)
+        analysis_30m = self.analyzer_30m.analyze(df_5m, current_price)
+        
+        # 计算情绪分析（保留原有逻辑）
+        sentiment = self._analyze_sentiment(snapshot)
+        
+        # 组织返回结果
+        result = {
+            # 按时间周期组织的分析结果
+            'timeframe_6h': asdict(analysis_6h),
+            'timeframe_2h': asdict(analysis_2h),
+            'timeframe_30m': asdict(analysis_30m),
+            
+            # 情绪分析
+            'sentiment': sentiment,
+            
+            # 为了向后兼容，保留旧的键名映射
+            'trend': self._map_to_legacy_trend(analysis_6h, analysis_2h, analysis_30m),
+            'oscillator': self._map_to_legacy_oscillator(analysis_6h, analysis_2h, analysis_30m),
+            
+            # 综合评分（加权平均）
+            'overall_score': self._calculate_overall_score(analysis_6h, analysis_2h, analysis_30m, sentiment),
+        }
+        
+        return result
+    
+    def _analyze_sentiment(self, snapshot: MarketSnapshot) -> Dict:
+        """
+        分析市场情绪（保留原有逻辑）
+        
+        基于：
+        - 资金费率
+        - 持仓量变化
+        - 其他市场情绪指标
+        """
         details = {}
         q_data = getattr(snapshot, 'quant_data', {})
         b_funding = getattr(snapshot, 'binance_funding', {})
@@ -277,188 +120,83 @@ class SentimentSubAgent:
         has_data = False
         score = 0
         
-        # 1. Netflow with CVD Fallback
-        use_cvd_fallback = False
-        nf_1h = 0
-        nf_15m = 0
-        
-        if q_data:
+        # 资金费率分析
+        if b_funding and 'funding_rate' in b_funding:
             has_data = True
-            netflow = q_data.get('netflow', {}).get('institution', {}).get('future', {})
-            nf_1h = netflow.get('1h', 0)
-            nf_15m = netflow.get('15m', 0)
+            funding_rate = float(b_funding['funding_rate']) * 100
+            details['funding_rate'] = funding_rate
             
-            # 🆕 Fallback to CVD if Netflow is unavailable
-            if not netflow or (nf_1h == 0 and nf_15m == 0):
-                use_cvd_fallback = True
-                log.info("📊 Netflow unavailable, using CVD fallback")
-                
-                # Calculate CVD from 1h K-line
-                df_1h = snapshot.stable_1h
-                cvd_change = self._calculate_cvd(df_1h)
-                
-                # Map CVD to netflow-like values for scoring
-                # CVD > 10% = strong buying, < -10% = strong selling
-                nf_1h = cvd_change  # Use CVD change as proxy
-                nf_15m = cvd_change * 0.6  # Scale down for 15m
-                
-                details['cvd_fallback_active'] = True
-                details['cvd_change_pct'] = cvd_change
-                log.debug(f"CVD Fallback: {cvd_change:.1f}% change")
+            if funding_rate > 0.05:
+                score -= 30
+                details['funding_signal'] = "极度贪婪（高资金费率）"
+            elif funding_rate > 0.01:
+                score -= 15
+                details['funding_signal'] = "贪婪"
+            elif funding_rate < -0.05:
+                score += 30
+                details['funding_signal'] = "极度恐惧（负资金费率）"
+            elif funding_rate < -0.01:
+                score += 15
+                details['funding_signal'] = "恐惧"
             else:
-                details['cvd_fallback_active'] = False
-            
-            if nf_1h > 0: score += 30
-            elif nf_1h < 0: score -= 30
-            if nf_15m > 0: score += 20
-            elif nf_15m < 0: score -= 20
-                
-            details['inst_netflow_1h'] = nf_1h
-            details['inst_netflow_15m'] = nf_15m
-            details['netflow_source'] = 'cvd' if use_cvd_fallback else 'api'
+                details['funding_signal'] = "中性"
         
-        # 2. Funding Rate
-        if b_funding:
+        # 持仓量变化分析
+        if b_oi and 'open_interest' in b_oi:
             has_data = True
-            f_rate = b_funding.get('funding_rate', 0)
-            details['binance_funding_rate'] = f_rate
+            oi_value = float(b_oi['open_interest'])
             
-            if f_rate > 0.0003: score -= 30; details['funding_signal'] = "多头拥挤"
-            elif f_rate < -0.0001: score += 30; details['funding_signal'] = "空头拥挤"
-            else: details['funding_signal'] = "中性"
-
-        # 3. Volume Surge (替代 OI)
-        volume_surge_pct = 0
-        df_1h = snapshot.stable_1h
-        if df_1h is not None and not df_1h.empty and len(df_1h) >= 20:
-            has_data = True
+            # 获取历史OI数据计算变化
+            symbol = getattr(snapshot, 'symbol', 'BTCUSDT')
             
-            # 计算 20 期成交量均值
-            volume_ma_20 = df_1h['volume'].rolling(20).mean()
-            current_volume = df_1h['volume'].iloc[-1]
-            ma_value = volume_ma_20.iloc[-1]
+            # 先记录当前OI，然后获取24h变化
+            oi_tracker.record(symbol, oi_value)
+            oi_change_24h = oi_tracker.get_change_pct(symbol, hours=24)
             
-            if ma_value > 0:
-                volume_surge_pct = ((current_volume / ma_value) - 1) * 100
-            
-            details['volume_surge_pct'] = volume_surge_pct
-            details['volume_ma_20'] = ma_value
-            details['current_volume'] = current_volume
-            
-            if volume_surge_pct > 50: score += 10; details['volume_signal'] = "成交量大幅激增"
-            elif volume_surge_pct > 20: score += 5; details['volume_signal'] = "成交量激增"
-            elif volume_surge_pct < -30: score -= 10; details['volume_signal'] = "成交量大幅萎缩"
-            elif volume_surge_pct < -10: score -= 5; details['volume_signal'] = "成交量萎缩"
-            else: details['volume_signal'] = "成交量正常"
-            
-        score = max(-100, min(100, score))
-        total_score = score if has_data else None
+            if oi_change_24h is not None:
+                details['oi_change_24h_pct'] = oi_change_24h
+                
+                if oi_change_24h > 20:
+                    score += 20
+                    details['oi_signal'] = "持仓量大幅增加"
+                elif oi_change_24h > 10:
+                    score += 10
+                    details['oi_signal'] = "持仓量增加"
+                elif oi_change_24h < -20:
+                    score -= 20
+                    details['oi_signal'] = "持仓量大幅减少"
+                elif oi_change_24h < -10:
+                    score -= 10
+                    details['oi_signal'] = "持仓量减少"
+                else:
+                    details['oi_signal'] = "持仓量稳定"
+        
+        # 🔥 Calculate OI Fuel (Layer 1 of Four-Layer Strategy)
+        # Specification thresholds:
+        # - Strong Fuel: abs(OI) > 3.0% (适合剥头皮)
+        # - Weak Fuel: abs(OI) < 1.0% (波动小，不建议操作)
+        # - Divergence Alert: OI < -5% (背离警报)
+        oi_change = details.get('oi_change_24h_pct', 0)
+        oi_fuel = {
+            'oi_change_24h': oi_change,
+            'fuel_signal': 'strong' if oi_change > 5 else
+                          'moderate' if oi_change > 2 else
+                          'weak' if oi_change > 0 else
+                          'whale_exit' if oi_change < -5 else 'negative',
+            'fuel_score': min(100, max(-100, int(oi_change * 10))),
+            'whale_trap_risk': oi_change < -5,
+            # 🆕 Specification: Fuel Strength Classification
+            'fuel_strength': 'strong' if abs(oi_change) > 3.0 else
+                            'weak' if abs(oi_change) < 1.0 else 'moderate',
+            # 🆕 Divergence Alert for Layer 1 blocking
+            'divergence_alert': oi_change < -5.0
+        }
         
         return {
-            'score': total_score if total_score is not None else 0,
+            'score': score if has_data else 0,
             'details': details,
-            'confidence': abs(total_score) if total_score is not None else 0,
-            'total_sentiment_score': total_score if total_score is not None else 0,
-            'volume_surge_pct': volume_surge_pct
+            'has_data': has_data,
+            'total_sentiment_score': score if has_data else 0,
+            'oi_change_24h_pct': oi_change,
+            'oi_fuel': oi_fuel,  # 🆕 OI fuel indicator
         }
-
-
-
-from src.agents.regime_detector import RegimeDetector
-
-class QuantAnalystAgent:
-    """
-    量化策略师 (The Strategist)
-    """
-    
-    def __init__(self):
-        self.trend_agent = TrendSubAgent()
-        self.oscillator_agent = OscillatorSubAgent()
-        self.sentiment_agent = SentimentSubAgent()
-        self.regime_detector = RegimeDetector()
-        log.info("👨‍🔬 The Strategist initialized")
-
-    async def analyze_all_timeframes(self, snapshot: MarketSnapshot) -> Dict:
-        """
-        分析所有周期
-        """
-        trend_results = self.trend_agent.analyze(snapshot)
-        osc_results = self.oscillator_agent.analyze(snapshot)
-        sentiment_results = self.sentiment_agent.analyze(snapshot)
-        
-        # New: Analyze Market Regime & Position
-        # Uses stable_5m for calculation
-        regime_results = self.regime_detector.detect_regime(snapshot.stable_5m)
-        
-        t_score = trend_results.get('total_trend_score')
-        o_score = osc_results.get('total_oscillator_score')
-        s_score = sentiment_results.get('total_sentiment_score')
-        
-        report = {
-            'trend': trend_results,
-            'oscillator': osc_results,
-            'sentiment': sentiment_results,
-            'regime': regime_results,  # New: Regime Analysis
-            'volatility': self._calculate_volatility(snapshot)
-        }
-        
-        return report
-
-
-    async def analyze(self, snapshot: MarketSnapshot) -> Dict:
-        """兼容性接口，返回综合分析内容"""
-        result = await self.analyze_all_timeframes(snapshot)
-        return result # Return full report for DecisionCoreAgent access to granular data
-
-    def _calculate_volatility(self, snapshot: MarketSnapshot) -> float:
-        """
-        计算波动率
-        使用ATR/价格作为波动率指标
-        """
-        df = snapshot.stable_5m
-        if df.empty or 'atr' not in df.columns:
-            return 0.5
-            
-        latest_atr = df['atr'].iloc[-1]
-        latest_price = snapshot.live_5m.get('close', df['close'].iloc[-1])
-        
-        if latest_price == 0: return 0.5
-        return float(latest_atr / latest_price)
-
-
-# 测试函数
-def test_quant_analyst_agent():
-    """测试量化分析师"""
-    from src.agents.data_sync_agent import DataSyncAgent
-    import asyncio
-    
-    async def run_test():
-        print("\n" + "="*80)
-        print("测试：量化分析师 (Quant Analyst Agent)")
-        print("="*80)
-        
-        # 获取数据
-        data_agent = DataSyncAgent()
-        snapshot = await data_agent.fetch_all_timeframes("BTCUSDT")
-        
-        # 分析
-        quant_agent = QuantAnalystAgent()
-        analysis = quant_agent.analyze(snapshot)
-        
-        # 输出结果
-        print("\n[分析结果]")
-        print(f"  趋势得分: {analysis['trend_score']}")
-        print(f"  趋势详情: {analysis['trend_details']}")
-        print(f"\n  反转得分: {analysis['reversion_score']}")
-        print(f"  反转详情: {analysis['reversion_details']}")
-        print(f"\n  波动率: {analysis['volatility']:.4f}")
-        
-        print("\n" + "="*80)
-        print("✅ 测试完成")
-        print("="*80 + "\n")
-    
-    asyncio.run(run_test())
-
-
-if __name__ == "__main__":
-    test_quant_analyst_agent()
