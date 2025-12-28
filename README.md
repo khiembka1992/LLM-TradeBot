@@ -575,6 +575,15 @@ data/
 
 ## 🎉 Latest Updates
 
+**2025-12-28**:
+
+- ✅ **Log Standardization**: All system logs converted to English with unified `[ICON TAG]` format for better readability.
+- ✅ **Dashboard Log Mode Toggle**: Switch between Simplified (agent summaries) and Detailed (full debug) log views.
+- ✅ **Live Log Sync Fix**: Log output now starts from Cycle 1, matching Recent Decisions table.
+- ✅ **Net Value Curve**: Smart x-axis labels that adapt to data volume while preserving first cycle timestamp.
+- ✅ **Real-time Trade History**: Backend tracking of balance history and trade records with PnL calculation.
+- ✅ **LLM Prompt Optimization**: Removed redundant Market Regime & Price Position section (now handled by TREND/SETUP agents).
+
 **2025-12-25**:
 
 - ✅ **ReflectionAgent (The Philosopher)**: New agent that analyzes every 10 trades and provides insights to improve future decisions.

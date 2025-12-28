@@ -149,48 +149,76 @@ class QuantAnalystAgent:
             # 获取历史OI数据计算变化
             symbol = getattr(snapshot, 'symbol', 'BTCUSDT')
             
-            # 先记录当前OI，然后获取24h变化
+            # Record current OI and get 24h change
             oi_tracker.record(symbol, oi_value)
             oi_change_24h = oi_tracker.get_change_pct(symbol, hours=24)
             
+            # 🔴 OI Anomaly Detection (Critical Fix)
+            # Values > 200% or < -80% are likely data errors and should be filtered
+            OI_ANOMALY_THRESHOLD_HIGH = 200.0  # >200% = data error
+            OI_ANOMALY_THRESHOLD_LOW = -80.0   # <-80% = data error
+            
+            oi_is_anomaly = False
             if oi_change_24h is not None:
+                if oi_change_24h > OI_ANOMALY_THRESHOLD_HIGH or oi_change_24h < OI_ANOMALY_THRESHOLD_LOW:
+                    oi_is_anomaly = True
+                    details['oi_anomaly'] = True
+                    details['oi_anomaly_value'] = oi_change_24h
+                    details['oi_signal'] = f"⚠️ DATA_ANOMALY ({oi_change_24h:.1f}% > {OI_ANOMALY_THRESHOLD_HIGH}%)"
+                    log.warning(f"[{symbol}] OI Anomaly detected: {oi_change_24h:.1f}% - filtering from analysis")
+                    # Reset to None to prevent downstream corruption
+                    oi_change_24h = None
+            
+            if oi_change_24h is not None and not oi_is_anomaly:
                 details['oi_change_24h_pct'] = oi_change_24h
+                details['oi_anomaly'] = False
                 
                 if oi_change_24h > 20:
                     score += 20
-                    details['oi_signal'] = "持仓量大幅增加"
+                    details['oi_signal'] = "OI significantly increased"
                 elif oi_change_24h > 10:
                     score += 10
-                    details['oi_signal'] = "持仓量增加"
+                    details['oi_signal'] = "OI increased"
                 elif oi_change_24h < -20:
                     score -= 20
-                    details['oi_signal'] = "持仓量大幅减少"
+                    details['oi_signal'] = "OI significantly decreased"
                 elif oi_change_24h < -10:
                     score -= 10
-                    details['oi_signal'] = "持仓量减少"
+                    details['oi_signal'] = "OI decreased"
                 else:
-                    details['oi_signal'] = "持仓量稳定"
+                    details['oi_signal'] = "OI stable"
         
         # 🔥 Calculate OI Fuel (Layer 1 of Four-Layer Strategy)
-        # Specification thresholds:
-        # - Strong Fuel: abs(OI) > 3.0% (适合剥头皮)
-        # - Weak Fuel: abs(OI) < 1.0% (波动小，不建议操作)
-        # - Divergence Alert: OI < -5% (背离警报)
+        # Skip fuel calculation if OI is anomalous
         oi_change = details.get('oi_change_24h_pct', 0)
-        oi_fuel = {
-            'oi_change_24h': oi_change,
-            'fuel_signal': 'strong' if oi_change > 5 else
-                          'moderate' if oi_change > 2 else
-                          'weak' if oi_change > 0 else
-                          'whale_exit' if oi_change < -5 else 'negative',
-            'fuel_score': min(100, max(-100, int(oi_change * 10))),
-            'whale_trap_risk': oi_change < -5,
-            # 🆕 Specification: Fuel Strength Classification
-            'fuel_strength': 'strong' if abs(oi_change) > 3.0 else
-                            'weak' if abs(oi_change) < 1.0 else 'moderate',
-            # 🆕 Divergence Alert for Layer 1 blocking
-            'divergence_alert': oi_change < -5.0
-        }
+        oi_is_anomaly = details.get('oi_anomaly', False)
+        
+        if oi_is_anomaly:
+            # Mark fuel as invalid due to data anomaly
+            oi_fuel = {
+                'oi_change_24h': None,
+                'fuel_signal': 'DATA_ANOMALY',
+                'fuel_score': 0,
+                'whale_trap_risk': False,
+                'fuel_strength': 'unknown',
+                'divergence_alert': False,
+                'data_error': True,
+                'anomaly_value': details.get('oi_anomaly_value', 0)
+            }
+        else:
+            oi_fuel = {
+                'oi_change_24h': oi_change,
+                'fuel_signal': 'strong' if oi_change > 5 else
+                              'moderate' if oi_change > 2 else
+                              'weak' if oi_change > 0 else
+                              'whale_exit' if oi_change < -5 else 'negative',
+                'fuel_score': min(100, max(-100, int(oi_change * 10))),
+                'whale_trap_risk': oi_change < -5,
+                'fuel_strength': 'strong' if abs(oi_change) > 3.0 else
+                                'weak' if abs(oi_change) < 1.0 else 'moderate',
+                'divergence_alert': oi_change < -5.0,
+                'data_error': False
+            }
         
         return {
             'score': score if has_data else 0,

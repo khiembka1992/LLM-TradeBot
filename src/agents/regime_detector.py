@@ -15,6 +15,7 @@ class MarketRegime(Enum):
     TRENDING_DOWN = "trending_down"   # 明确下跌趋势
     CHOPPY = "choppy"                 # 震荡市（垃圾时间）
     VOLATILE = "volatile"             # 高波动（危险）
+    VOLATILE_DIRECTIONLESS = "volatile_directionless"  # 🆕 ADX高但方向不明（洗盘）
     UNKNOWN = "unknown"               # 无法判断
 
 
@@ -237,12 +238,12 @@ class RegimeDetector:
                     f"下跌趋势（ADX {adx:.1f} > {self.adx_trend_threshold}，价格在均线下方）"
                 )
             else:
-                # ADX 高但方向不明
+                # 🆕 ADX high but direction unclear - VOLATILE_DIRECTIONLESS
+                # This captures "strong momentum but unclear direction" (likely shakeout/washout)
                 return (
-                    MarketRegime.UNKNOWN,
-                    50.0,
-                    f"趋势强度高但方向不明（ADX {adx:.1f}）"
-                )
+                    MarketRegime.VOLATILE_DIRECTIONLESS,
+                    65.0,
+                    f"⚠️ ADX high ({adx:.1f}) but EMA direction unclear - potential shakeout/washout phase")
         
         # 4. 无法判断
         return (

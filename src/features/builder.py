@@ -196,7 +196,7 @@ class FeatureBuilder:
                 'total_balance': None,
                 'margin_usage_pct': None,
                 'account_fetch_error': account_fetch_error or 'No account data available',
-                'warning': '⚠️ 账户信息缺失，建议不要进行交易操作'
+                'warning': '⚠️ Account info missing, trading is not recommended'
             }
         
         if not position or position.get('position_amt', 0) == 0:
@@ -320,12 +320,12 @@ class FeatureBuilder:
             # 账户信息获取失败
             text += f"⚠️ **警告**: {position['warning']}\n"
             text += f"- 错误原因: {position['account_fetch_error']}\n"
-            text += "- 持仓状态: 无法获取\n"
-            text += "- 账户余额: 无法获取\n"
-            text += "\n**重要提示**: 由于无法获取账户信息，建议采取以下措施：\n"
-            text += "  1. 不要进行任何开仓操作\n"
-            text += "  2. 检查API密钥配置是否正确\n"
-            text += "  3. 确认API权限是否包含账户查询\n"
+            text += "- Position Status: Unable to fetch\n"
+            text += "- Account Balance: Unable to fetch\n"
+            text += "\n**Important**: Account info unavailable. Recommendations:\n"
+            text += "  1. Do not open any new positions\n"
+            text += "  2. Check if API key is correctly configured\n"
+            text += "  3. Verify API permissions include account query\n"
         elif position['has_position']:
             text += f"- 方向: {position['side']}\n"
             text += f"- 数量: {position['size']}\n"
@@ -339,8 +339,8 @@ class FeatureBuilder:
         
         text += f"\n### 账户信息\n"
         if position.get('account_fetch_error'):
-            text += "- 可用余额: **无法获取**\n"
-            text += "- 总余额: **无法获取**\n"
+            text += "- Available Balance: **Unable to fetch**\n"
+            text += "- Total Balance: **Unable to fetch**\n"
         else:
             balance = position.get('account_balance')
             total = position.get('total_balance', 0)
