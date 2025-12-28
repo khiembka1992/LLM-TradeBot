@@ -141,10 +141,13 @@ class DataSyncAgent:
                 # 仍需异步获取外部数据
                 q_data = await quant_client.fetch_coin_data(symbol)
                 loop = asyncio.get_event_loop()
-                b_funding, b_oi = await asyncio.gather(
-                    loop.run_in_executor(None, self.client.get_funding_rate_with_cache, symbol),
-                    loop.run_in_executor(None, self.client.get_open_interest, symbol)
-                )
+                # [DISABLE OI] Commented out due to API errors
+                # b_funding, b_oi = await asyncio.gather(
+                #     loop.run_in_executor(None, self.client.get_funding_rate_with_cache, symbol),
+                #     loop.run_in_executor(None, self.client.get_open_interest, symbol)
+                # )
+                b_funding = await self.client.get_funding_rate_with_cache(symbol) # Run non-concurrently or just wait
+                b_oi = {} # Mock empty OI
 
         if not self.use_websocket or not self.ws_manager or not self._initial_load_complete or use_rest_fallback:
             # REST API 模式或首次加载 / 回退模式
@@ -172,15 +175,18 @@ class DataSyncAgent:
                     self.client.get_funding_rate_with_cache,
                     symbol
                 ),
-                loop.run_in_executor(
-                    None,
-                    self.client.get_open_interest,
-                    symbol
-                )
+                # loop.run_in_executor(
+                #     None,
+                #     self.client.get_open_interest,
+                #     symbol
+                # )
             ]
             
             # 等待所有请求完成
-            k5m, k15m, k1h, q_data, b_funding, b_oi = await asyncio.gather(*tasks)
+            # k5m, k15m, k1h, q_data, b_funding, b_oi = await asyncio.gather(*tasks)
+            results = await asyncio.gather(*tasks)
+            k5m, k15m, k1h, q_data, b_funding = results
+            b_oi = {} # Mock empty OI
             
             log.info(f"[{symbol}] Data fetched: 5m={len(k5m)}, 15m={len(k15m)}, 1h={len(k1h)}")
             

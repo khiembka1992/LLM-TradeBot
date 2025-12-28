@@ -522,6 +522,18 @@ class MultiAgentTradingBot:
             print("[Step 2/4] 👨‍🔬 The Strategist (QuantAnalyst) - Analyzing data...")
             quant_analysis = await self.quant_analyst.analyze_all_timeframes(market_snapshot)
             
+            # 💉 INJECT MACD DATA (Fix for Missing Data)
+            try:
+                df_15m = processed_dfs['15m']
+                # Check for macd_diff or calculate it if missing (though processor handles it)
+                if 'macd_diff' in df_15m.columns:
+                    macd_val = float(df_15m['macd_diff'].iloc[-1])
+                    if 'trend' not in quant_analysis: quant_analysis['trend'] = {}
+                    if 'details' not in quant_analysis['trend']: quant_analysis['trend']['details'] = {}
+                    quant_analysis['trend']['details']['15m_macd_diff'] = macd_val
+            except Exception as e:
+                log.warning(f"Failed to inject MACD data: {e}")
+            
             # Save Context
             self.saver.save_context(quant_analysis, self.current_symbol, 'analytics', snapshot_id, cycle_id=cycle_id)
             
@@ -802,7 +814,14 @@ class MultiAgentTradingBot:
                         
                         # 🆕 Always store trigger data for LLM display
                         four_layer_result['trigger_pattern'] = trigger_result.get('pattern_type') or 'None'
-                        four_layer_result['trigger_rvol'] = trigger_result.get('rvol', 1.0)
+                        rvol = trigger_result.get('rvol', 1.0)
+                        four_layer_result['trigger_rvol'] = rvol
+                        
+                        # ⚠️ LOW VOLUME WARNING
+                        if rvol < 0.5:
+                            log.warning(f"⚠️ Low Volume Warning (RVOL {rvol:.1f}x < 0.5) - Trend validation may be unreliable")
+                            if not four_layer_result.get('data_anomalies'): four_layer_result['data_anomalies'] = []
+                            four_layer_result['data_anomalies'].append(f"Low Volume (RVOL {rvol:.1f}x)")
                         
                         if not trigger_result['triggered']:
                             four_layer_result['blocking_reason'] = f"5min trigger not confirmed (RVOL={trigger_result.get('rvol', 1.0):.1f}x)"
@@ -877,7 +896,7 @@ class MultiAgentTradingBot:
                     'bb_upper': processed_dfs['15m']['bb_upper'].iloc[-1] if 'bb_upper' in processed_dfs['15m'].columns else current_price * 1.02,
                     'bb_middle': processed_dfs['15m']['bb_middle'].iloc[-1] if 'bb_middle' in processed_dfs['15m'].columns else current_price,
                     'bb_lower': processed_dfs['15m']['bb_lower'].iloc[-1] if 'bb_lower' in processed_dfs['15m'].columns else current_price * 0.98,
-                    'trend_direction': four_layer_result.get('final_action', 'neutral')
+                    'trend_direction': trend_1h  # Use actual 1h trend instead of 'final_action'
                 }
                 
                 trigger_data = {
@@ -1015,8 +1034,10 @@ class MultiAgentTradingBot:
                  # Clamp to reasonable range (仓位大小不应超过100%)
                  pos_pct = min(pos_pct, 100)
             
-            # 获取真正的价格位置信息（从 regime_info）
-            price_position_info = regime_info.get('position', {}) if regime_info else {}
+            # 获取真正的价格位置信息（从 regime_result - Python calculated）
+            # Note: regime_info (from quant_analysis) is empty because we separated logic.
+            # Use regime_result calculated in Step 2.75 instead for accurate Position Data.
+            price_position_info = regime_result.get('position', {}) if regime_result else {}
             
             vote_result = VoteResult(
                 action=llm_decision.get('action', 'wait'),
@@ -2413,8 +2434,8 @@ def main():
         # or exit immediately. Usually 'once' implies run and exit.
         
     else:
-        # [CHANGE] Default to Stopped to require user confirmation
-        global_state.execution_mode = "Stopped"
+        # [CHANGE] Default to Stopped to require user confirmation (Auto-start in Test Mode for debugging)
+        global_state.execution_mode = "Running" if args.test else "Stopped"
         log.info("⏸️ System ready (Stopped). Waiting for user to START from Dashboard.")
         bot.run_continuous(interval_minutes=args.interval)
 

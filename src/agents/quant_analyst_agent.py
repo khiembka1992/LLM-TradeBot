@@ -105,22 +105,21 @@ class QuantAnalystAgent:
     
     def _analyze_sentiment(self, snapshot: MarketSnapshot) -> Dict:
         """
-        分析市场情绪（保留原有逻辑）
+        分析市场情绪 (Modified: Use Volume as OI Proxy)
         
         基于：
-        - 资金费率
-        - 持仓量变化
-        - 其他市场情绪指标
+        - 资金费率 (Funding Rate)
+        - 成交量变化 (Volume Change as Proxy for OI)
         """
         details = {}
-        q_data = getattr(snapshot, 'quant_data', {})
+        # q_data = getattr(snapshot, 'quant_data', {})
         b_funding = getattr(snapshot, 'binance_funding', {})
-        b_oi = getattr(snapshot, 'binance_oi', {})
+        # b_oi = getattr(snapshot, 'binance_oi', {}) # Disabled
         
         has_data = False
         score = 0
         
-        # 资金费率分析
+        # 1. 资金费率分析
         if b_funding and 'funding_rate' in b_funding:
             has_data = True
             funding_rate = float(b_funding['funding_rate']) * 100
@@ -141,96 +140,64 @@ class QuantAnalystAgent:
             else:
                 details['funding_signal'] = "中性"
         
-        # 持仓量变化分析
-        if b_oi and 'open_interest' in b_oi:
+        # 2. Volume Fuel Proxy (Replacing OI)
+        # Use 1h Volume Change as a proxy for "Fuel"
+        # Logic: High relative volume = High fuel/interest
+        
+        vol_change_pct = 0.0
+        fuel_signal = "neutral"
+        
+        df_1h = snapshot.stable_1h
+        if df_1h is not None and len(df_1h) >= 24:
             has_data = True
-            oi_value = float(b_oi['open_interest'])
+            # Calculate average volume of last 24 hours
+            current_vol = df_1h['volume'].iloc[-1]
+            avg_vol = df_1h['volume'].iloc[-25:-1].mean()
             
-            # Get symbol for tracking
-            symbol = getattr(snapshot, 'symbol', 'BTCUSDT')
+            if avg_vol > 0:
+                vol_ratio = current_vol / avg_vol
+                # Convert ratio to percentage change for compatibility: 1.5x -> +50%
+                vol_change_pct = (vol_ratio - 1) * 100
+            else:
+                vol_change_pct = 0
             
-            # 🔴 CRITICAL FIX: Check for anomaly BEFORE recording
-            # Get 24h change WITHOUT recording current value first
-            oi_change_24h = oi_tracker.get_change_pct(symbol, hours=24)
+            details['oi_change_24h_pct'] = vol_change_pct # Map to existing field
+            details['is_volume_proxy'] = True
             
-            # OI Anomaly Detection
-            # Values > 200% or < -80% are likely data errors and should be filtered
-            OI_ANOMALY_THRESHOLD_HIGH = 200.0  # >200% = data error
-            OI_ANOMALY_THRESHOLD_LOW = -80.0   # <-80% = data error
-            
-            oi_is_anomaly = False
-            if oi_change_24h is not None:
-                if oi_change_24h > OI_ANOMALY_THRESHOLD_HIGH or oi_change_24h < OI_ANOMALY_THRESHOLD_LOW:
-                    oi_is_anomaly = True
-                    details['oi_anomaly'] = True
-                    details['oi_anomaly_value'] = oi_change_24h
-                    details['oi_signal'] = f"⚠️ DATA_ANOMALY ({oi_change_24h:.1f}% exceeds threshold)"
-                    log.warning(f"[{symbol}] OI Anomaly detected: {oi_change_24h:.1f}% - NOT recording to tracker")
-                    # Reset to None to prevent downstream corruption
-                    oi_change_24h = None
-            
-            # ✅ Only record if NOT anomalous
-            if not oi_is_anomaly:
-                oi_tracker.record(symbol, oi_value)
-                # Recalculate after recording
-                oi_change_24h = oi_tracker.get_change_pct(symbol, hours=24)
-            
-            if oi_change_24h is not None and not oi_is_anomaly:
-                details['oi_change_24h_pct'] = oi_change_24h
-                details['oi_anomaly'] = False
-                
-                if oi_change_24h > 20:
-                    score += 20
-                    details['oi_signal'] = "OI significantly increased"
-                elif oi_change_24h > 10:
-                    score += 10
-                    details['oi_signal'] = "OI increased"
-                elif oi_change_24h < -20:
-                    score -= 20
-                    details['oi_signal'] = "OI significantly decreased"
-                elif oi_change_24h < -10:
-                    score -= 10
-                    details['oi_signal'] = "OI decreased"
-                else:
-                    details['oi_signal'] = "OI stable"
-        
-        # 🔥 Calculate OI Fuel (Layer 1 of Four-Layer Strategy)
-        # Skip fuel calculation if OI is anomalous
-        oi_change = details.get('oi_change_24h_pct', 0)
-        oi_is_anomaly = details.get('oi_anomaly', False)
-        
-        if oi_is_anomaly:
-            # Mark fuel as invalid due to data anomaly
-            oi_fuel = {
-                'oi_change_24h': 0,  # Fallback to 0 instead of None to avoid downstream abs() errors
-                'fuel_signal': 'DATA_ANOMALY',
-                'fuel_score': 0,
-                'whale_trap_risk': False,
-                'fuel_strength': 'unknown',
-                'divergence_alert': False,
-                'data_error': True,
-                'anomaly_value': details.get('oi_anomaly_value', 0)
-            }
+            if vol_change_pct > 50: # > 1.5x volume
+                score += 20
+                fuel_signal = "strong"
+                details['oi_signal'] = f"High Volume (1.5x avg)"
+            elif vol_change_pct > 20: # > 1.2x volume
+                score += 10
+                fuel_signal = "moderate"
+                details['oi_signal'] = f"Elevated Volume (1.2x avg)"
+            elif vol_change_pct < -50: # < 0.5x volume
+                score -= 10
+                fuel_signal = "weak" 
+                details['oi_signal'] = f"Low Volume (0.5x avg)"
+            else:
+                details['oi_signal'] = "Normal Volume"
         else:
-            oi_fuel = {
-                'oi_change_24h': oi_change,
-                'fuel_signal': 'strong' if oi_change > 5 else
-                              'moderate' if oi_change > 2 else
-                              'weak' if oi_change > 0 else
-                              'whale_exit' if oi_change < -5 else 'negative',
-                'fuel_score': min(100, max(-100, int(oi_change * 10))),
-                'whale_trap_risk': oi_change < -5,
-                'fuel_strength': 'strong' if abs(oi_change) > 3.0 else
-                                'weak' if abs(oi_change) < 1.0 else 'moderate',
-                'divergence_alert': oi_change < -5.0,
-                'data_error': False
-            }
+            details['oi_signal'] = "Insufficient Data for Vol"
+
+        # 🔥 Construct Proxy OI Fuel
+        oi_fuel = {
+            'oi_change_24h': vol_change_pct,
+            'fuel_signal': fuel_signal,
+            'fuel_score': min(100, max(-100, int(vol_change_pct))),
+            'whale_trap_risk': False, # Volume proxy doesn't detect whale traps easily
+            'fuel_strength': fuel_signal, 
+            'divergence_alert': False,
+            'data_error': False,
+            'is_proxy': True
+        }
         
         return {
             'score': score if has_data else 0,
             'details': details,
             'has_data': has_data,
             'total_sentiment_score': score if has_data else 0,
-            'oi_change_24h_pct': oi_change,
-            'oi_fuel': oi_fuel,  # 🆕 OI fuel indicator
+            'oi_change_24h_pct': vol_change_pct,
+            'oi_fuel': oi_fuel, 
         }
