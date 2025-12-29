@@ -1167,6 +1167,10 @@ class MultiAgentTradingBot:
                     kdj_zone = bb_to_zone_map.get(bb_position, 'unknown')
                 decision_dict['vote_details']['kdj_zone'] = kdj_zone
                 
+                # 🔧 Fix: Inject ADX into regime object for Dashboard display
+                if 'regime' in decision_dict and decision_dict['regime']:
+                    decision_dict['regime']['adx'] = global_state.four_layer_result.get('adx', 20)
+                
                 # Update Market Context
                 if vote_result.regime:
                     global_state.market_regime = vote_result.regime.get('regime', 'Unknown')
@@ -1314,6 +1318,10 @@ class MultiAgentTradingBot:
                 }
                 kdj_zone = bb_to_zone_map.get(bb_position, 'unknown')
             decision_dict['vote_details']['kdj_zone'] = kdj_zone
+            
+            # 🔧 Fix: Inject ADX into regime object for Dashboard display
+            if 'regime' in decision_dict and decision_dict['regime']:
+                decision_dict['regime']['adx'] = global_state.four_layer_result.get('adx', 20)
             
             # Update Market Context
             if vote_result.regime:
@@ -2435,8 +2443,8 @@ def main():
         # or exit immediately. Usually 'once' implies run and exit.
         
     else:
-        # [CHANGE] Default to Stopped to require user confirmation (Auto-start in Test Mode for debugging)
-        global_state.execution_mode = "Running" if args.test else "Stopped"
+        # [CHANGE] Default to Stopped - Always require user to click START from Dashboard
+        global_state.execution_mode = "Stopped"
         log.info("⏸️ System ready (Stopped). Waiting for user to START from Dashboard.")
         bot.run_continuous(interval_minutes=args.interval)
 
