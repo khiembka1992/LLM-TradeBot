@@ -40,6 +40,7 @@ class BacktestConfig:
     margin_mode: str = "cross"  # "cross" 或 "isolated"
     contract_type: str = "linear"  # "linear" 或 "inverse"
     contract_size: float = 100.0  # 币本位合约面值 (BTC=100 USD)
+    strategy_mode: str = "technical"  # "technical" (EMA) or "agent" (Multi-Agent)
 
 
 @dataclass
@@ -99,6 +100,12 @@ class BacktestEngine:
         # 组件
         self.data_replay: Optional[DataReplayAgent] = None
         self.portfolio: Optional[BacktestPortfolio] = None
+        self.agent_runner = None
+        
+        # Initialize Agent Runner if needed
+        if config.strategy_mode == "agent":
+            from src.backtest.agent_wrapper import BacktestAgentRunner
+            self.agent_runner = BacktestAgentRunner(config.__dict__)
         
         # 状态
         self.is_running = False
@@ -193,8 +200,11 @@ class BacktestEngine:
                 self.portfolio.record_equity(timestamp, prices)
                 
                 # 进度回调
-                if progress_callback and i % 100 == 0:
-                    progress_callback(i, total, i / total * 100)
+                if progress_callback:
+                    if asyncio.iscoroutinefunction(progress_callback):
+                         await progress_callback(i, total, i / total * 100)
+                    else:
+                        progress_callback(i, total, i / total * 100)
                     
             except Exception as e:
                 log.warning(f"Error at {timestamp}: {e}")
@@ -251,12 +261,15 @@ class BacktestEngine:
         """执行策略并返回决策"""
         try:
             # 调用策略函数
-            decision = await self.strategy_fn(
-                snapshot=snapshot,
-                portfolio=self.portfolio,
-                current_price=current_price,
-                config=self.config
-            )
+            if self.config.strategy_mode == "agent" and self.agent_runner:
+                decision = await self.agent_runner.step(snapshot)
+            else:
+                decision = await self.strategy_fn(
+                    snapshot=snapshot,
+                    portfolio=self.portfolio,
+                    current_price=current_price,
+                    config=self.config
+                )
             
             decision['timestamp'] = self.current_timestamp
             decision['price'] = current_price

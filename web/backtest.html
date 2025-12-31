@@ -676,6 +676,15 @@
                                 </select>
                             </div>
                             <div class="form-group">
+                                <label data-i18n="backtest.strategy">Strategy Mode</label>
+                                <select id="strategyMode">
+                                    <option value="technical" data-i18n="backtest.strategy.technical" selected>📊
+                                        Technical (EMA)</option>
+                                    <option value="agent" data-i18n="backtest.strategy.agent">🤖 Multi-Agent (Simulated)
+                                    </option>
+                                </select>
+                            </div>
+                            <div class="form-group">
                                 <label style="display:flex; align-items:center; gap:8px;">
                                     <input type="checkbox" id="includeFunding" checked style="width:auto;">
                                     <span data-i18n="backtest.funding.settlement">Include Funding Rate Settlement</span>
@@ -1000,7 +1009,8 @@
                     margin_mode: document.getElementById('marginMode')?.value || 'cross',
                     contract_type: document.getElementById('contractType')?.value || 'linear',
                     fee_tier: document.getElementById('feeTier')?.value || 'vip0',
-                    include_funding: document.getElementById('includeFunding')?.checked ?? true
+                    include_funding: document.getElementById('includeFunding')?.checked ?? true,
+                    strategy_mode: document.getElementById('strategyMode')?.value || 'technical'
                 };
 
                 // Validate dates
@@ -1215,6 +1225,7 @@
                     takeProfit: config.take_profit_pct,
                     leverage: config.leverage || 10,
                     marginMode: config.margin_mode || 'cross',
+                    strategyMode: config.strategy_mode || 'technical',
                     totalReturn: result.metrics.total_return,
                     winRate: result.metrics.win_rate,
                     trades: result.metrics.total_trades,
@@ -1286,7 +1297,7 @@
                             </div>
                             <div class="history-detail-row" style="margin-top:2px;">
                                 <span class="period" style="font-size:0.8rem; color:#888;">📅 ${h.period}</span>
-                                <span class="config" style="font-size:0.8rem; color:#888; margin-left:10px;">💰 ${capitalDisplay} | ⏱ ${stepLabel}</span>
+                                <span class="config" style="font-size:0.8rem; color:#888; margin-left:10px;">💰 ${capitalDisplay} | ⏱ ${stepLabel} | 🎮 ${h.strategyMode || 'technical'}</span>
                             </div>
                         </div>
                         <div class="history-stats">

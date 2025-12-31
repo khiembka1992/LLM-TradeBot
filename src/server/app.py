@@ -436,6 +436,7 @@ class BacktestRequest(BaseModel):
     step: int = 3
     stop_loss_pct: float = 1.0
     take_profit_pct: float = 2.0
+    strategy_mode: str = "technical" # "technical" or "agent"
 
 @app.post("/api/backtest/run")
 async def run_backtest(config: BacktestRequest, authenticated: bool = Depends(verify_auth)):
@@ -452,8 +453,10 @@ async def run_backtest(config: BacktestRequest, authenticated: bool = Depends(ve
             end_date=config.end_date,
             initial_capital=config.initial_capital,
             step=config.step,
+            step=config.step,
             stop_loss_pct=config.stop_loss_pct,
-            take_profit_pct=config.take_profit_pct
+            take_profit_pct=config.take_profit_pct,
+            strategy_mode=config.strategy_mode
         )
         
         engine = BacktestEngine(bt_config)
@@ -549,6 +552,7 @@ async def run_backtest(config: BacktestRequest, authenticated: bool = Depends(ve
                     'step': config.step,
                     'stop_loss_pct': config.stop_loss_pct,
                     'take_profit_pct': config.take_profit_pct,
+                    'strategy_mode': config.strategy_mode,
                     'leverage': getattr(config, 'leverage', 10),
                     'margin_mode': getattr(config, 'margin_mode', 'cross'),
                     'contract_type': getattr(config, 'contract_type', 'linear'),
