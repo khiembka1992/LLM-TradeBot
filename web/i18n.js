@@ -184,7 +184,48 @@ const i18n = {
         'trade.pnl': 'PnL',
         'trade.pnlpct': 'PnL%',
         'trade.duration': 'Duration',
-        'trade.reason': 'Reason'
+        'trade.reason': 'Reason',
+
+        // Backtest Symbol Buttons
+        'backtest.symbol.major': 'Major',
+        'backtest.symbol.ai500': 'AI500',
+        'backtest.symbol.alts': 'Alts',
+        'backtest.symbol.all': 'All',
+        'backtest.symbol.clear': 'Clear',
+        'backtest.symbol.selected': 'Selected',
+
+        // Backtest Date Range Buttons
+        'backtest.date.1day': '1 Day',
+        'backtest.date.3days': '3 Days',
+        'backtest.date.7days': '7 Days',
+        'backtest.date.14days': '14 Days',
+        'backtest.date.30days': '30 Days',
+
+        // Backtest Form Labels
+        'backtest.label.capital': 'Capital',
+        'backtest.label.step': 'Step',
+        'backtest.label.sl': 'SL%',
+        'backtest.label.tp': 'TP%',
+
+        // Backtest Advanced Settings
+        'backtest.funding.settlement': 'Include Funding Rate Settlement',
+
+        // Backtest History Metrics (Short Form)
+        'metric.winrate.short': 'WIN RATE',
+        'metric.trades.short': 'TRADES',
+        'metric.maxdd.short': 'MAX DD',
+
+        // Backtest Results Sections
+        'metric.section.risk': 'RISK METRICS',
+        'metric.section.trading': 'TRADING',
+        'metric.section.longshort': 'LONG/SHORT',
+
+        // Detailed Metrics
+        'metric.sortino': 'Sortino Ratio',
+        'metric.volatility': 'Volatility',
+        'metric.longtrades': 'Long Trades',
+        'metric.shorttrades': 'Short Trades',
+        'metric.avghold': 'Avg Hold Time'
     },
 
     zh: {
@@ -371,7 +412,48 @@ const i18n = {
         'trade.pnl': '盈亏',
         'trade.pnlpct': '盈亏%',
         'trade.duration': '持仓时间',
-        'trade.reason': '平仓原因'
+        'trade.reason': '平仓原因',
+
+        // Backtest Symbol Buttons
+        'backtest.symbol.major': '主流币',
+        'backtest.symbol.ai500': 'AI500',
+        'backtest.symbol.alts': '山寨币',
+        'backtest.symbol.all': '全选',
+        'backtest.symbol.clear': '清空',
+        'backtest.symbol.selected': '已选择',
+
+        // Backtest Date Range Buttons
+        'backtest.date.1day': '1天',
+        'backtest.date.3days': '3天',
+        'backtest.date.7days': '7天',
+        'backtest.date.14days': '14天',
+        'backtest.date.30days': '30天',
+
+        // Backtest Form Labels
+        'backtest.label.capital': '初始资金',
+        'backtest.label.step': '时间步长',
+        'backtest.label.sl': '止损%',
+        'backtest.label.tp': '止盈%',
+
+        // Backtest Advanced Settings
+        'backtest.funding.settlement': '包含资金费率结算',
+
+        // Backtest History Metrics (Short Form)
+        'metric.winrate.short': '胜率',
+        'metric.trades.short': '交易数',
+        'metric.maxdd.short': '最大回撤',
+
+        // Backtest Results Sections
+        'metric.section.risk': '风险指标',
+        'metric.section.trading': '交易统计',
+        'metric.section.longshort': '多空分析',
+
+        // Detailed Metrics
+        'metric.sortino': '索提诺比率',
+        'metric.volatility': '波动率',
+        'metric.longtrades': '做多次数',
+        'metric.shorttrades': '做空次数',
+        'metric.avghold': '平均持仓时间'
     }
 };
 

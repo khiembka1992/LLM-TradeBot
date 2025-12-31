@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import secrets
-from typing import Optional
+from typing import Optional, Dict
 
 from src.server.state import global_state
 
@@ -530,6 +530,43 @@ async def run_backtest(config: BacktestRequest, authenticated: bool = Depends(ve
         except Exception as log_error:
             print(f"⚠️ Failed to save backtest log: {log_error}")
         
+        # Save to database for analytics
+        try:
+            from src.backtest.storage import BacktestStorage
+            import uuid
+            
+            storage = BacktestStorage()
+            run_id = f"bt_{uuid.uuid4().hex[:12]}"
+            
+            storage.save_backtest(
+                run_id=run_id,
+                config={
+                    'symbol': config.symbol,
+                    'symbols': [config.symbol],  # TODO: support multi-symbol
+                    'start_date': config.start_date,
+                    'end_date': config.end_date,
+                    'initial_capital': config.initial_capital,
+                    'step': config.step,
+                    'stop_loss_pct': config.stop_loss_pct,
+                    'take_profit_pct': config.take_profit_pct,
+                    'leverage': getattr(config, 'leverage', 10),
+                    'margin_mode': getattr(config, 'margin_mode', 'cross'),
+                    'contract_type': getattr(config, 'contract_type', 'linear'),
+                    'fee_tier': getattr(config, 'fee_tier', 'vip0'),
+                    'include_funding': getattr(config, 'include_funding', True),
+                    'duration_seconds': result.duration_seconds
+                },
+                metrics=response_data['metrics'],
+                trades=trades,
+                equity_curve=equity_curve
+            )
+            
+            print(f"📊 Backtest saved to database: {run_id}")
+            response_data['run_id'] = run_id
+            
+        except Exception as db_error:
+            print(f"⚠️ Failed to save to database: {db_error}")
+        
         return response_data
         
     except Exception as e:
@@ -557,6 +594,21 @@ async def get_backtest_history(authenticated: bool = Depends(verify_auth)):
     reports.sort(key=lambda x: x['created'], reverse=True)
     return {"reports": reports[:20]}
 
+# Authentication middleware for protected static files
+@app.middleware("http")
+async def protect_backtest_page(request: Request, call_next):
+    """Protect backtest.html from direct access without authentication"""
+    # Check if accessing backtest.html directly
+    if request.url.path == "/static/backtest.html":
+        try:
+            verify_auth(request)
+        except HTTPException:
+            # Redirect to login if not authenticated
+            return RedirectResponse("/login", status_code=302)
+    
+    response = await call_next(request)
+    return response
+
 # Serve Static Files
 app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
 
@@ -578,6 +630,152 @@ async def read_root(request: Request):
 @app.get("/login")
 async def read_login():
     return FileResponse(os.path.join(WEB_DIR, 'login.html'))
+
+# ==================== Backtest Analytics APIs ====================
+
+@app.get("/api/backtest/list")
+async def list_backtests(symbol: Optional[str] = None, limit: int = 100, 
+                        authenticated: bool = Depends(verify_auth)):
+    """List all backtest runs with optional filtering"""
+    try:
+        from src.backtest.storage import BacktestStorage
+        storage = BacktestStorage()
+        results = storage.list_backtests(symbol=symbol, limit=limit)
+        return {"status": "success", "backtests": results}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/backtest/compare")
+async def compare_backtests(request: Dict, authenticated: bool = Depends(verify_auth)):
+    """Compare multiple backtest runs"""
+    try:
+        from src.backtest.analytics import BacktestAnalytics
+        
+        run_ids = request.get('run_ids', [])
+        if not run_ids:
+            raise HTTPException(status_code=400, detail="run_ids required")
+        
+        analytics = BacktestAnalytics()
+        comparison = analytics.compare_runs(run_ids)
+        
+        return {
+            "status": "success",
+            "comparison": comparison.to_dict(orient='records')
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/backtest/trends")
+async def get_performance_trends(symbol: str, days: int = 30,
+                                authenticated: bool = Depends(verify_auth)):
+    """Get performance trends over time"""
+    try:
+        from src.backtest.analytics import BacktestAnalytics
+        
+        analytics = BacktestAnalytics()
+        trends = analytics.get_performance_trends(symbol=symbol, days=days)
+        
+        return {"status": "success", "trends": trends}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/backtest/optimize/suggest")
+async def suggest_optimal_parameters(symbol: str, target: str = 'sharpe',
+                                    authenticated: bool = Depends(verify_auth)):
+    """Get optimal parameter suggestions"""
+    try:
+        from src.backtest.analytics import BacktestAnalytics
+        
+        if target not in ['sharpe', 'return', 'drawdown']:
+            raise HTTPException(status_code=400, detail="Invalid target")
+        
+        analytics = BacktestAnalytics()
+        suggestions = analytics.suggest_optimal_parameters(symbol=symbol, target=target)
+        
+        return {"status": "success", "suggestions": suggestions}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/backtest/analyze/{run_id}")
+async def analyze_backtest(run_id: str, authenticated: bool = Depends(verify_auth)):
+    """Get detailed analysis for a specific backtest"""
+    try:
+        from src.backtest.analytics import BacktestAnalytics
+        
+        analytics = BacktestAnalytics()
+        
+        # Get win rate analysis
+        win_analysis = analytics.get_win_rate_analysis(run_id)
+        
+        # Get risk metrics
+        risk_metrics = analytics.calculate_risk_metrics(run_id)
+        
+        return {
+            "status": "success",
+            "run_id": run_id,
+            "win_rate_analysis": win_analysis,
+            "risk_metrics": risk_metrics
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/backtest/export/{run_id}")
+async def export_backtest(run_id: str, format: str = 'csv',
+                         authenticated: bool = Depends(verify_auth)):
+    """Export backtest data"""
+    try:
+        from src.backtest.storage import BacktestStorage
+        import tempfile
+        import shutil
+        
+        if format not in ['csv', 'json']:
+            raise HTTPException(status_code=400, detail="Invalid format")
+        
+        storage = BacktestStorage()
+        
+        if format == 'csv':
+            # Export to temporary directory
+            temp_dir = tempfile.mkdtemp()
+            storage.export_to_csv(run_id, temp_dir)
+            
+            # Create zip file
+            import zipfile
+            zip_path = f"{temp_dir}/{run_id}.zip"
+            with zipfile.ZipFile(zip_path, 'w') as zipf:
+                for file in os.listdir(temp_dir):
+                    if file.endswith(('.csv', '.json')):
+                        zipf.write(os.path.join(temp_dir, file), file)
+            
+            return FileResponse(zip_path, filename=f"{run_id}.zip")
+        
+        else:  # json
+            data = storage.get_backtest(run_id)
+            if not data:
+                raise HTTPException(status_code=404, detail="Backtest not found")
+            
+            return {"status": "success", "data": data}
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/backtest/{run_id}")
+async def delete_backtest(run_id: str, authenticated: bool = Depends(verify_auth)):
+    """Delete a backtest"""
+    try:
+        from src.backtest.storage import BacktestStorage
+        
+        storage = BacktestStorage()
+        success = storage.delete_backtest(run_id)
+        
+        if success:
+            return {"status": "success", "message": "Backtest deleted"}
+        else:
+            raise HTTPException(status_code=404, detail="Backtest not found")
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ==================== Page Routes ====================
 
 @app.get("/backtest")
 async def read_backtest(request: Request):
