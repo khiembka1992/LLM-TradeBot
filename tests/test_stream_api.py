@@ -57,6 +57,10 @@ def test_backtest_stream_endpoint():
             elif data['type'] == 'result':
                 has_result = True
                 assert 'metrics' in data['data']
+                if 'id' in data['data']:
+                    print(f"✅ Received Backtest ID: #{data['data']['id']}")
+                else:
+                    print("⚠️ Backtest ID missing in response")
             elif data['type'] == 'error':
                 print(f"❌ Error: {data['message']}")
                 raise Exception(data['message'])

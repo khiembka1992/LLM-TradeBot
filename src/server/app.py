@@ -560,15 +560,21 @@ async def run_backtest(config: BacktestRequest, authenticated: bool = Depends(ve
                         storage = BacktestStorage()
                         run_id = f"bt_{uuid.uuid4().hex[:12]}"
                         
-                        storage.save_backtest(
+                        db_id = storage.save_backtest(
                             run_id=run_id,
                             config=config.dict(),
                             metrics=response_data['metrics'],
                             trades=trades,
                             equity_curve=equity_curve
                         )
-                        print(f"📊 Backtest saved to DB: {run_id}")
-                        response_data['run_id'] = run_id
+                        
+                        if db_id:
+                             print(f"📊 Backtest saved to DB: #{db_id} ({run_id})")
+                             response_data['run_id'] = run_id
+                             response_data['id'] = db_id
+                        else:
+                             print(f"⚠️ Backtest save returned None")
+                             
                     except Exception as db_err:
                         # Log full traceback for DB error
                         # import traceback

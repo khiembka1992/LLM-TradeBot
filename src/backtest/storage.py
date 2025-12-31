@@ -256,12 +256,16 @@ class BacktestStorage:
                 ))
             
             conn.commit()
+            
+            # Get the auto-increment ID
+            backtest_id = cursor.lastrowid
+            
             conn.close()
-            return True
+            return backtest_id
             
         except Exception as e:
             print(f"Error saving backtest: {e}")
-            return False
+            return None
     
     def get_backtest(self, run_id: str) -> Optional[Dict]:
         """

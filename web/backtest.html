@@ -1248,7 +1248,8 @@
 
             function saveToHistory(config, result) {
                 const entry = {
-                    id: Date.now(),
+                    id: result.id, // Store DB ID
+                    runId: result.run_id,
                     runTime: new Date().toISOString(),
                     symbol: config.symbol,
                     symbols: config.symbols || [config.symbol],
@@ -1312,6 +1313,8 @@
                     const capitalDisplay = h.initialCapital ? `$${h.initialCapital.toLocaleString()}` : 'N/A';
                     const hasData = h.equityCurve && h.equityCurve.length > 0;
 
+                    const idDisplay = h.id ? `#${h.id}` : '';
+
                     const symbols = Array.isArray(h.symbols) ? h.symbols : [h.symbol];
                     const symbolsDisplay = symbols.join(', ');
                     const symbolsTitle = symbols.join(', ');
@@ -1324,7 +1327,7 @@
                         <div class="history-info">
                             <div class="history-main-row">
                                 <span class="run-time" style="font-weight:600; color:var(--accent);">
-                                    ${hasData ? '👁️' : '🕐'} ${runTimeDisplay}
+                                    ${hasData ? '👁️' : '🕐'} ${idDisplay} ${runTimeDisplay}
                                 </span>
                                 <span class="return-badge ${returnClass}" style="margin-left:auto;">${h.totalReturn}</span>
                             </div>
