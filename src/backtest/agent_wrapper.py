@@ -316,6 +316,12 @@ class BacktestAgentRunner:
 - Weighted Score: {vote_result.weighted_score:.1f}
 - Multi-Period Aligned: {vote_result.multi_period_aligned}
 
+Regime Analysis:
+- Status: {vote_result.regime.get('regime', 'UNKNOWN').upper() if vote_result.regime else 'UNKNOWN'}
+- Confidence: {vote_result.regime.get('confidence', 0):.1f}%
+- ADX: {vote_result.regime.get('adx', 0):.1f}
+- Reason: {vote_result.regime.get('reason', 'N/A') if vote_result.regime else 'N/A'}
+
 Technical Signals:
 {json.dumps(quant_analysis, indent=2, default=str)}
 

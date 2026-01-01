@@ -480,6 +480,12 @@ class DecisionCoreAgent:
 - 置信度: {vote_result.confidence:.2%}
 - 多周期对齐: {'✅ 是' if vote_result.multi_period_aligned else '❌ 否'}
 
+**市场体制 (Regime Analysis)**:
+- 状态: {vote_result.regime.get('regime', 'UNKNOWN').upper()}
+- 信心度: {vote_result.regime.get('confidence', 0):.1f}%
+- ADX: {vote_result.regime.get('adx', 0):.1f}
+- 判定: {vote_result.regime.get('reason', 'N/A')}
+
 **决策原因**: {vote_result.reason}
 
 **各信号详情**:

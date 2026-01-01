@@ -87,7 +87,7 @@ class RegimeDetector:
         
         # 5. 综合判断市场状态
         regime, confidence, reason = self._classify_regime(
-            adx, bb_width_pct, atr_pct, trend_direction
+            adx, bb_width_pct, atr_pct, trend_direction, df
         )
         
         # ✅ Sanity Checks: Clip values to valid ranges and handle NaN
@@ -199,9 +199,10 @@ class RegimeDetector:
                         adx: float,
                         bb_width_pct: float,
                         atr_pct: float,
-                        trend_direction: str) -> tuple:
+                        trend_direction: str,
+                        df: pd.DataFrame = None) -> tuple:
         """
-        综合分类市场状态
+        综合分类市场状态 (Enhanced with TSS)
         
         Returns:
             (regime, confidence, reason)
@@ -214,42 +215,66 @@ class RegimeDetector:
                 80.0,
                 f"高波动市场（ATR {atr_pct:.2f}% > {self.atr_high_threshold}%）"
             )
+
+        # 2. Calculate Trend Strength Score (TSS)
+        # TSS Components:
+        # - ADX (0-100): Weight 40%
+        # - EMA Alignment (Boolean): Weight 30%
+        # - MACD Pulse (Boolean): Weight 30%
         
-        # 2. 震荡市检测
+        tss = 0
+        tss_details = []
+        
+        # Component A: ADX
+        if adx > 25:
+            tss += 40
+            tss_details.append("ADX>25(+40)")
+        elif adx > 20:
+            tss += 20
+            tss_details.append("ADX>20(+20)")
+            
+        # Component B: EMA Alignment
+        if trend_direction in ['up', 'down']:
+            tss += 30
+            tss_details.append("EMA_Aligned(+30)")
+            
+        # Component C: MACD Momentum (if available)
+        macd_aligned = False
+        if df is not None and 'macd' in df.columns and 'macd_signal' in df.columns:
+            macd = df['macd'].iloc[-1]
+            signal = df['macd_signal'].iloc[-1]
+            if (trend_direction == 'up' and macd > signal > 0) or \
+               (trend_direction == 'down' and macd < signal < 0):
+                tss += 30
+                tss_details.append("MACD_Momentum(+30)")
+                macd_aligned = True
+        
+        # 3. Classify based on TSS
+        if tss >= 70: # Strong Trend (e.g. ADX>25 + EMA)
+             if trend_direction == 'up':
+                 return (MarketRegime.TRENDING_UP, 85.0, f"强上涨趋势 (TSS:{tss} - {','.join(tss_details)})")
+             elif trend_direction == 'down':
+                 return (MarketRegime.TRENDING_DOWN, 85.0, f"强下跌趋势 (TSS:{tss} - {','.join(tss_details)})")
+        
+        elif tss >= 30: # Weak Trend
+             if trend_direction == 'up':
+                 return (MarketRegime.TRENDING_UP, 60.0, f"弱上涨趋势 (TSS:{tss} - {','.join(tss_details)})")
+             elif trend_direction == 'down':
+                 return (MarketRegime.TRENDING_DOWN, 60.0, f"弱下跌趋势 (TSS:{tss} - {','.join(tss_details)})")
+             
+        # 4. Fallback to Choppy/Volatile
         if adx < self.adx_choppy_threshold:
             return (
                 MarketRegime.CHOPPY,
                 70.0,
                 f"震荡市（ADX {adx:.1f} < {self.adx_choppy_threshold}）"
             )
-        
-        # 3. 趋势市检测
-        if adx > self.adx_trend_threshold:
-            if trend_direction == 'up':
-                return (
-                    MarketRegime.TRENDING_UP,
-                    75.0,
-                    f"上涨趋势（ADX {adx:.1f} > {self.adx_trend_threshold}，价格在均线上方）"
-                )
-            elif trend_direction == 'down':
-                return (
-                    MarketRegime.TRENDING_DOWN,
-                    75.0,
-                    f"下跌趋势（ADX {adx:.1f} > {self.adx_trend_threshold}，价格在均线下方）"
-                )
-            else:
-                # 🆕 ADX high but direction unclear - VOLATILE_DIRECTIONLESS
-                # This captures "strong momentum but unclear direction" (likely shakeout/washout)
-                return (
-                    MarketRegime.VOLATILE_DIRECTIONLESS,
-                    65.0,
-                    f"⚠️ ADX high ({adx:.1f}) but EMA direction unclear - potential shakeout/washout phase")
-        
-        # 4. 无法判断
+            
+        # 5. ADX high but no alignment -> Volatile Directionless
         return (
-            MarketRegime.UNKNOWN,
-            40.0,
-            f"市场状态不明确（ADX {adx:.1f}）"
+            MarketRegime.VOLATILE_DIRECTIONLESS,
+            65.0,
+            f"方向不明（ADX {adx:.1f} 但趋势未对齐）"
         )
     
     def _calculate_price_position(self, df: pd.DataFrame, lookback: int = 50) -> Dict:

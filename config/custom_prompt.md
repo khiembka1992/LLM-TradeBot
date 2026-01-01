@@ -307,10 +307,21 @@ Step 1: Check 1h Trend
 ### 5. Confidence Calibration (MANDATORY)
 
 - **Anchor to Strategist Score**: Your confidence MUST generally align with the `Strategist Score` (0-100).
-  - If Strategist Score is < 30, Confidence CANNOT exceed 60% (unless strong specific 5m setup).
+
+- **Dynamic Confidence Thresholds (Regime-Dependent)**:
+  - **STRONG TREND (TSS > 70)**:
+    - Base confidence requirement lowered to **60%**.
+    - Be aggressive. Don't let minor doubts prevent entry.
+  - **WEAK/NORMAL TREND**:
+    - Base confidence requirement is **70%**.
+  - **CHOPPY / VOLATILE**:
+    - Base confidence requirement raised to **80%**.
+    - Be conservative. Only take A+ setups.
+
 - **Penalty for Divergence**:
   - If Prophet is Bearish but you want to Long: **Rationalize why** and deduct 20% confidence.
   - If MACD is Bearish but you want to Long: **Rationalize why** and deduct 20% confidence.
+
 - **No Blind Confidence**:
   - NEVER output confidence > 80% if auxiliary signals (Prophet, MACD, Squeeze) contradict your trade direction.
   - HIGH CONFIDENCE (>80) implies ALL lights are green.

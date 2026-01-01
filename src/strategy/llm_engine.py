@@ -462,15 +462,33 @@ Analyze the above data following the strategy rules in system prompt. Output you
             log.error(f"confidence超出范围: {decision['confidence']}")
             return False
         
-        # STRICT ENFORCEMENT: Open trades must have confidence >= 70
-        # OPTIMIZATION (Phase 1): Lowered from 75% to 70% to increase trade frequency
-        # Expected impact: 10-15x more trades while maintaining acceptable win rate
+        # STRICT ENFORCEMENT: Open trades must meet Dynamic Confidence Threshold
+        # OPTIMIZATION (Phase 5): Regime-Based Dynamic Thresholds
+        # - Strong Trend: 60% (Aggressive)
+        # - Weak Trend: 70% (Standard)
+        # - Choppy/Volatile: 80% (Conservative) or NO TRADE
+        
         action = decision['action']
         confidence = decision['confidence']
-        if action in ['open_long', 'open_short'] and confidence < 70:
-            log.warning(f"🚫 Confidence < 70 ({confidence}%) for {action}, converting to 'wait'")
+        
+        # Extract regime from decision reasoning or context if available
+        # Ideally this should be passed in, but we can parse from reasoning or rely on default
+        # For now, we set a smart default and rely on the Prompt to guide the confidence score itself.
+        # But we can also enforce a hard floor.
+        
+        regime_threshold = 70 # Default (Weak Trend / Normal)
+        
+        # Check if reasoning mentions regime (Simple keyword check as fallback)
+        reasoning_lower = decision.get('reasoning', '').lower()
+        if 'strong trend' in reasoning_lower or 'strong_trend' in reasoning_lower:
+            regime_threshold = 60
+        elif 'choppy' in reasoning_lower or 'volatile' in reasoning_lower:
+            regime_threshold = 80
+            
+        if action in ['open_long', 'open_short'] and confidence < regime_threshold:
+            log.warning(f"🚫 Confidence {confidence}% < Threshold {regime_threshold}% for {action}, converting to 'wait'")
             decision['action'] = 'wait'
-            decision['reasoning'] = f"Low confidence ({confidence}% < 70%), wait for better setup"
+            decision['reasoning'] = f"Low confidence ({confidence}% < {regime_threshold}% dynamic threshold), wait for better setup"
         
         if not (1 <= decision['leverage'] <= config.risk.get('max_leverage', 5)):
             log.error(f"leverage超出范围: {decision['leverage']}")
