@@ -71,9 +71,23 @@ You will receive:
 
 **If any answer is "No" → Strongly prefer `wait` or `hold`.**
 
----
+### Priority 3: Handling Conflicting Signals (Mean Reversion Strategy)
 
-### Priority 3: Multi-Period Alignment
+**When Trend says DOWN but Oscillator says OVERSOLD (or vice versa):**
+
+1. **Check Regime**:
+   - If `TRENDING_STRONG` (ADX > 30) → **Follow Trend** (Ignore Oscillator except for exit).
+   - If `VOLATILE` or `CHOPPY` (ADX < 25) → **Trust Oscillator** (Mean Reversion Opportunity).
+
+2. **Actionable Logic**:
+   - Case A: Bearish Trend + RSI < 25 + Volatile/Choppy Regime
+     → **OPEN_LONG** (Catch the bounce). Use tight SL.
+   - Case B: Bullish Trend + RSI > 75 + Volatile/Choppy Regime
+     → **OPEN_SHORT** (Fade the rally). Use tight SL.
+
+**Do NOT just `wait` because signals conflict. Analyze the Regime to break the tie.**
+
+### Priority 4: Multi-Period Alignment
 
 **Aligned** (15m + 5m agree, OR 1h + 15m agree):
 - ✅ Proceed with normal thresholds
@@ -87,7 +101,7 @@ You will receive:
 - ✅ ALLOW trade if 15m + 5m strongly aligned (both > ±30)
 - Use 15m as primary trend guide
 
-### Priority 4: Weighted Score Thresholds
+### Priority 5: Weighted Score Thresholds
 
 | Regime | Long Threshold | Short Threshold | Confidence |
 |--------|---------------|-----------------|------------|
@@ -95,17 +109,17 @@ You will receive:
 | VOLATILE | > +8 | < -8 | 70-85% |
 | CHOPPY | > +20 | < -20 | 60-75% |
 
-### Priority 5: Bull/Bear Resonance
+### Priority 6: Bull/Bear Resonance
 
 **Strong Resonance** (one side > 60% confidence):
-- ✅ Boost decision confidence by +10%
+- ✅ Boost confidence by +10%
 - Example: Bull 75%, Bear 30% → Bullish bias
 
 **Conflicting** (both sides 40-60%):
 - ⚠️ Reduce confidence by -10%
 - Increase caution, prefer `wait`
 
-### Priority 6: Position Management (CRITICAL)
+### Priority 7: Position Management (CRITICAL)
  
  **IF HOLDING LONG**:
  - **CLOSE** if:

@@ -19,7 +19,14 @@ from typing import Dict, Any, Optional
 from dataclasses import dataclass
 
 from src.agents.decision_core_agent import DecisionCoreAgent
+from src.strategy.composer import StrategyComposer # ✅ Shared Strategy Logic
 from src.utils.logger import log
+
+@dataclass
+class MockPredictResult:
+    probability_up: float = 0.5
+    signal: str = 'neutral'
+    confidence: float = 0.0
 
 
 class BacktestSignalCalculator:
@@ -185,6 +192,7 @@ class BacktestAgentRunner:
         # We only need the DecisionCoreAgent (The Critic) to make final decisions
         self.decision_core = DecisionCoreAgent()
         self.quant_analyst = QuantAnalystAgent() # Replaces legacy calculator
+        self.strategy_composer = StrategyComposer() # ✅ Shared Strategy Logic
         
         # LLM log collection for backtest
         self.llm_logs = []  # Store LLM interaction logs
@@ -224,16 +232,18 @@ class BacktestAgentRunner:
             quant_analysis = await self.quant_analyst.analyze_all_timeframes(snapshot)
             
             # 2. Make Decision via Critic
-            # We mock the PredictResult as None (ML disabled for speed/simplicity in backtest)
-            market_data = {
+            # We mock the PredictResult (ML disabled for speed/simplicity in backtest for now)
+            predict_result = MockPredictResult()
+            
+            market_data_for_critic = {
                  'df_5m': snapshot.stable_5m,
                  'current_price': snapshot.live_5m.get('close', 0)
             }
             
             vote_result = await self.decision_core.make_decision(
                 quant_analysis=quant_analysis,
-                predict_result=None,
-                market_data=market_data
+                predict_result=predict_result,
+                market_data=market_data_for_critic
             )
             
             # 3. LLM Enhancement (if enabled)
@@ -250,9 +260,23 @@ class BacktestAgentRunner:
                 if throttle_ms > 0:
                     await asyncio.sleep(throttle_ms / 1000)
                 
-                # Call LLM with context
+                # ✅ Run Shared Strategy Analysis (Four Layer + Semantics)
+                processed_dfs = {
+                    '5m': snapshot.stable_5m,
+                    '15m': snapshot.stable_15m,
+                    '1h': snapshot.stable_1h
+                }
+                
+                analysis_result = await self.strategy_composer.run_four_layer_analysis(
+                    quant_analysis=quant_analysis,
+                    processed_dfs=processed_dfs,
+                    current_price=snapshot.live_5m.get('close', 0),
+                    predict_result=predict_result
+                )
+                
+                # Call LLM with full context
                 llm_decision = await self._call_llm_with_context(
-                    snapshot, quant_analysis, vote_result, portfolio
+                    snapshot, quant_analysis, vote_result, portfolio, analysis_result, predict_result
                 )
                 
                 # Merge LLM reasoning with quant signals
@@ -272,26 +296,53 @@ class BacktestAgentRunner:
             }
             
         except Exception as e:
-            log.error(f"Backtest agent step error: {e}")
+            log.error(f"Backtest agent step error: {e}", exc_info=True) # Added exc_info
             return {
                 'action': 'hold',
                 'confidence': 0,
                 'reason': f"Error: {str(e)}"
             }
     
-    async def _call_llm_with_context(self, snapshot, quant_analysis, vote_result, portfolio=None):
-        """Call LLM with full market context"""
+    async def _call_llm_with_context(self, snapshot, quant_analysis, vote_result, portfolio, analysis_result, predict_result):
+        """Call LLM with full market context using StrategyComposer"""
         import json
         from datetime import datetime
         
-        # Build context string
-        context_text = self._build_llm_context(snapshot, quant_analysis, vote_result, portfolio)
+        current_price = snapshot.live_5m.get('close', 0)
+        symbol = self.config.get('symbol', 'BTCUSDT')
+        
+        # Build Position Info dict for StrategyComposer
+        position_info = None
+        if portfolio and symbol in portfolio.positions:
+             pos = portfolio.positions[symbol]
+             # Parse Side
+             side_str = 'LONG' if 'LONG' in str(pos.side).upper() else 'SHORT'
+             position_info = {
+                 'side': side_str,
+                 'entry_price': pos.entry_price,
+                 'quantity': pos.quantity,
+                 'unrealized_pnl': pos.unrealized_pnl_pct * pos.entry_price * pos.quantity / 100, # Approx
+                 'pnl_pct': pos.unrealized_pnl_pct,
+                 'leverage': 1 # Default or from pos
+             }
+
+        # Build context string using Shared Logic
+        context_text = self.strategy_composer.build_market_context(
+            symbol=symbol,
+            current_price=current_price,
+            quant_analysis=quant_analysis,
+            predict_result=predict_result,
+            market_data={'current_price': current_price},
+            four_layer_result=analysis_result['four_layer_result'],
+            semantic_analyses=analysis_result['semantic_analyses'],
+            position_info=position_info
+        )
         
         # Build context data dict
         context_data = {
-            'symbol': self.config.get('symbol', 'BTCUSDT'),
+            'symbol': symbol,
             'timestamp': datetime.now().isoformat(),
-            'current_price': snapshot.live_5m.get('close', 0),
+            'current_price': current_price,
             'quant_analysis': quant_analysis,
             'vote_result': {
                 'action': vote_result.action,
@@ -304,7 +355,8 @@ class BacktestAgentRunner:
         try:
             llm_result_dict = self.llm_engine.make_decision(
                 market_context_text=context_text,
-                market_context_data=context_data
+                market_context_data=context_data,
+                reflection=None # TODO: Add Backtest Reflection Support
             )
             
             # Convert dict to VoteResult-like object
@@ -344,46 +396,10 @@ class BacktestAgentRunner:
             log.warning(f"LLM call failed: {e}, falling back to quant decision")
             return vote_result
     
-    def _build_llm_context(self, snapshot, quant_analysis, vote_result, portfolio=None):
-        """Build context string for LLM"""
-        import json
-        
-        current_price = snapshot.live_5m.get('close', 0)
-        symbol = self.config.get('symbol', 'BTCUSDT')
-
-        # Position Info Construction
-        pos_info = "NO POSITION"
-        if portfolio and symbol in portfolio.positions:
-             pos = portfolio.positions[symbol]
-             # Assuming Side is Enum or object with name/value
-             side_str = str(pos.side).replace('Side.', '') 
-             pos_info = f"HOLDING {side_str} | Entry: ${pos.entry_price:.2f} | Unrealized PnL: {pos.unrealized_pnl_pct:.2f}% | Size: {pos.quantity:.4f}"
-        
-        return f"""Market Analysis Summary:
-- Current Price: ${current_price:.2f}
-- **Current Position**: {pos_info}
-- Quantitative Vote: {vote_result.action} (confidence: {vote_result.confidence:.1f}%)
-- Weighted Score: {vote_result.weighted_score:.1f}
-- Multi-Period Aligned: {vote_result.multi_period_aligned}
-
-Regime Analysis:
-- Status: {vote_result.regime.get('regime', 'UNKNOWN').upper() if vote_result.regime else 'UNKNOWN'}
-- Confidence: {vote_result.regime.get('confidence', 0):.1f}%
-- ADX: {vote_result.regime.get('adx', 0):.1f}
-- Reason: {vote_result.regime.get('reason', 'N/A') if vote_result.regime else 'N/A'}
-
-Technical Signals:
-{json.dumps(quant_analysis, indent=2, default=str)}
-
-Quantitative Reasoning: {vote_result.reason}
-
-Please provide your trading decision based on this analysis."""
-    
     def _merge_decisions(self, quant_vote, llm_decision):
         """Merge quantitative and LLM decisions"""
         from dataclasses import replace
         
-        # Strategy: LLM can override if high confidence, otherwise enhance reasoning
         # Strategy: LLM can override if confidence > 50 (Was 70), allowing Agent to lead
         if llm_decision.confidence > 50:
             # LLM override with high confidence

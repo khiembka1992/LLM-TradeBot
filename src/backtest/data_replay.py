@@ -68,15 +68,26 @@ class DataReplayAgent:
         
         Args:
             symbol: 交易对 (e.g., "BTCUSDT")
-            start_date: 开始日期 "YYYY-MM-DD"
-            end_date: 结束日期 "YYYY-MM-DD"
+            start_date: 开始日期 "YYYY-MM-DD" 或 "YYYY-MM-DD HH:MM"
+            end_date: 结束日期 "YYYY-MM-DD" 或 "YYYY-MM-DD HH:MM"
             client: Binance 客户端（可选）
         """
         self.symbol = symbol
-        self.start_date = datetime.strptime(start_date, "%Y-%m-%d")
-        # CRITICAL FIX: Add 1 day to end_date to include all K-lines from that day
-        # end_date "2026-01-01" becomes "2026-01-02 00:00:00", so filter with < includes all of 2026-01-01
-        self.end_date = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
+        
+        # Smart Date Parsing
+        try:
+            self.start_date = datetime.strptime(start_date, "%Y-%m-%d %H:%M")
+        except ValueError:
+            self.start_date = datetime.strptime(start_date, "%Y-%m-%d")
+            
+        try:
+            # If HH:MM is provided, use it exactly
+            self.end_date = datetime.strptime(end_date, "%Y-%m-%d %H:%M")
+        except ValueError:
+            # If only YYYY-MM-DD, add 1 day to include the full end day
+            dt = datetime.strptime(end_date, "%Y-%m-%d")
+            self.end_date = dt + timedelta(days=1)
+            
         self.client = client or BinanceClient()
         
         # 数据缓存
@@ -92,7 +103,7 @@ class DataReplayAgent:
         # 确保缓存目录存在
         os.makedirs(self.CACHE_DIR, exist_ok=True)
         
-        log.info(f"📼 DataReplayAgent initialized | {symbol} | {start_date} to {end_date}")
+        log.info(f"📼 DataReplayAgent initialized | {symbol} | {self.start_date} to {self.end_date}")
     
     async def load_data(self) -> bool:
         """
@@ -108,8 +119,12 @@ class DataReplayAgent:
             log.info(f"📂 Loading cached data from {cache_file}")
             try:
                 self._load_from_cache(cache_file)
-                log.info(f"✅ Loaded {len(self.timestamps)} timestamps from cache")
-                return True
+                # Verify we actually got data for range
+                if not self.timestamps:
+                    log.warning("Cache loaded but no timestamps in range. Retrying fetch...")
+                else:
+                    log.info(f"✅ Loaded {len(self.timestamps)} timestamps from cache")
+                    return True
             except Exception as e:
                 log.warning(f"Cache load failed: {e}, fetching from API...")
         
@@ -127,8 +142,19 @@ class DataReplayAgent:
     
     def _get_cache_path(self) -> str:
         """生成缓存文件路径"""
+        # Use simple date string for cache key to maximize hits
+        # (Even if precise time is used, we cache the whole day range usually)
+        # But here start/end might be mid-day. 
+        # Strategy: Cache based on DATE part only to allow reuse for different times on same days.
         start_str = self.start_date.strftime("%Y%m%d")
+        
+        # Use the DATE part of end_date (minus a microsecond to handle clean midnight?)
+        # Actually safest is to use the requested window.
+        # But if I request 16:00, and later request 00:00, different cache?
+        # Ideally cache should cover the widest range.
+        # For simplicity, just use the exact request strings converted to safe chars.
         end_str = self.end_date.strftime("%Y%m%d")
+        
         # Include lookback in cache path to ensure invalidation when lookback changes
         lookback_days = 30  # Must match the value in _fetch_from_api
         return os.path.join(
@@ -148,15 +174,14 @@ class DataReplayAgent:
         
         # Calculate required candles
         # 5m K线：每天 288 根
-        limit_5m = total_days * 288
+        limit_5m = total_days * 288 * 2 # Safety factor
         # 15m K线：每天 96 根
-        limit_15m = total_days * 96
+        limit_15m = total_days * 96 * 2
         # 1h K线：每天 24 根
-        limit_1h = total_days * 24
+        limit_1h = total_days * 24 * 2
         
         log.info(f"📊 Fetching data from {extended_start.date()} to {self.end_date.date()}")
         log.info(f"   Lookback: {lookback_days} days before backtest start")
-        log.info(f"   Expected: 5m={limit_5m}, 15m={limit_15m}, 1h={limit_1h} candles")
         
         # Binance API 限制单次最多 1500 根，需要分批获取
         df_5m = await self._fetch_klines_batched("5m", limit_5m)
@@ -166,7 +191,7 @@ class DataReplayAgent:
         # 获取资金费率历史
         funding_rates = await self._fetch_funding_rates()
         
-        # IMPORTANT: Do NOT filter out historical data before start_date
+        # IMPORTANT: Do NOT filter out historical data before start_date here
         # We need it for technical indicator calculation
         # Only filter data AFTER end_date
         df_5m = df_5m[df_5m.index <= self.end_date]
@@ -185,22 +210,12 @@ class DataReplayAgent:
         )
         
         # Generate timestamp list (based on 5m K-lines)
-        # IMPORTANT: Only include timestamps within backtest period, not historical lookback
         all_timestamps = df_5m.index.tolist()
         
-        # Debug: Print date range info
-        log.info(f"   Date comparison: start_date={self.start_date}, end_date={self.end_date}")
-        if all_timestamps:
-            log.info(f"   Data range: {all_timestamps[0]} to {all_timestamps[-1]}")
-        
         # Filter timestamps to backtest period only
-        # self.start_date is datetime, df_5m.index is also datetime (pandas Timestamp)
+        # Strict inequality for end_date to avoid processing the exact end second if not in data
         self.timestamps = [ts for ts in all_timestamps if self.start_date <= ts < self.end_date]
         
-        log.info(f"   5m: {len(df_5m)} candles (including lookback)")
-        log.info(f"   15m: {len(df_15m)} candles")
-        log.info(f"   1h: {len(df_1h)} candles")
-        log.info(f"   Backtest period: {self.start_date} to {self.end_date}")
         log.info(f"   Backtest timestamps (5m): {len(self.timestamps)}")
         if self.timestamps:
             log.info(f"   First: {self.timestamps[0]}, Last: {self.timestamps[-1]}")
@@ -217,7 +232,10 @@ class DataReplayAgent:
             # Binance API 每次最多返回 1000 条
             current_start = start_ts
             
-            while current_start < end_ts:
+            # Safety break
+            loop_count = 0
+            while current_start < end_ts and loop_count < 100:
+                loop_count += 1
                 funding_data = self.client.client.futures_funding_rate(
                     symbol=self.symbol,
                     startTime=current_start,
@@ -260,8 +278,10 @@ class DataReplayAgent:
         
         remaining = total_limit
         current_end = end_ts
+        loop_count = 0
         
-        while remaining > 0:
+        while remaining > 0 and loop_count < 200: # Safety break
+            loop_count += 1
             limit = min(batch_size, remaining)
             
             try:
@@ -317,7 +337,7 @@ class DataReplayAgent:
         """过滤日期范围"""
         if df.empty:
             return df
-        # Use < instead of <= since end_date is now start of next day
+        # Use < instead of <= since end_date is now strictly parsed
         return df[(df.index >= self.start_date) & (df.index < self.end_date)]
     
     def _save_to_cache(self, cache_path: str):
@@ -334,6 +354,9 @@ class DataReplayAgent:
                 {'timestamp': fr.timestamp, 'funding_rate': fr.funding_rate, 'mark_price': fr.mark_price}
                 for fr in self.data_cache.funding_rates
             ],
+            # Save date boundaries to verify cache validity
+            'start_date': self.start_date,
+            'end_date': self.end_date
         }
         
         # 使用 pickle 保存（支持多个 DataFrame）
@@ -357,6 +380,7 @@ class DataReplayAgent:
                     mark_price=fr_dict.get('mark_price', 0)
                 ))
         
+        # Reconstruct DataCache
         self.data_cache = DataCache(
             symbol=self.symbol,
             df_5m=cache_data['df_5m'],
@@ -370,8 +394,11 @@ class DataReplayAgent:
         self.timestamps = [ts for ts in self.data_cache.df_5m.index.tolist() if self.start_date <= ts < self.end_date]
         
         log.info(f"   Date comparison: start_date={self.start_date}, end_date={self.end_date}")
-        log.info(f"   Cached range: {self.data_cache.df_5m.index[0]} to {self.data_cache.df_5m.index[-1]}")
-        log.info(f"   Backtest timestamps: {len(self.timestamps)}")
+        if not self.timestamps:
+            log.warning(f"   ⚠️ Cache loaded but zero timestamps in requested range!")
+        else:
+            log.info(f"   Cached range: {self.timestamps[0]} to {self.timestamps[-1]}")
+            log.info(f"   Backtest timestamps: {len(self.timestamps)}")
     
     def get_snapshot_at(self, timestamp: datetime, lookback: int = 1000) -> MarketSnapshot:
         """

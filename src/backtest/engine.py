@@ -49,13 +49,24 @@ class BacktestConfig:
         
         # 验证日期格式
         try:
-            start = datetime.strptime(self.start_date, '%Y-%m-%d')
-            end = datetime.strptime(self.end_date, '%Y-%m-%d')
+            # Try full datetime format first
+            try:
+                start = datetime.strptime(self.start_date, '%Y-%m-%d %H:%M')
+            except ValueError:
+                # Fallback to date only
+                start = datetime.strptime(self.start_date, '%Y-%m-%d')
+            
+            try:
+                end = datetime.strptime(self.end_date, '%Y-%m-%d %H:%M')
+            except ValueError:
+                # Fallback to date only
+                end = datetime.strptime(self.end_date, '%Y-%m-%d')
+                
             if start >= end:
                 raise ValueError(f"start_date ({self.start_date}) must be before end_date ({self.end_date})")
         except ValueError as e:
             if "does not match format" in str(e):
-                raise ValueError(f"Invalid date format. Expected YYYY-MM-DD, got start_date={self.start_date}, end_date={self.end_date}")
+                raise ValueError(f"Invalid date format. Expected YYYY-MM-DD or YYYY-MM-DD HH:MM, got start_date={self.start_date}, end_date={self.end_date}")
             raise
         
         # 验证数值范围
