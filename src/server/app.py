@@ -454,6 +454,11 @@ async def run_backtest(config: BacktestRequest, authenticated: bool = Depends(ve
     import logging
 
     try:
+        # Log received config for debugging
+        import logging
+        log = logging.getLogger(__name__)
+        log.info(f"📋 Backtest request received: symbol={config.symbol}, step={config.step}, dates={config.start_date} to {config.end_date}")
+        
         bt_config = BacktestConfig(
             symbol=config.symbol,
             start_date=config.start_date,
@@ -474,22 +479,28 @@ async def run_backtest(config: BacktestRequest, authenticated: bool = Depends(ve
         async def event_generator():
             queue = asyncio.Queue()
             
-            # Progress callback (Async)
-            async def progress_callback(current, total, pct, **kwargs):
-                # Simple throttling: send every 2% or every 10 steps
-                if current % 10 == 0 or current == total - 1:
-                    await queue.put({
-                        "type": "progress",
-                        "current": current,
-                        "total": total,
-                        "percent": round(pct, 1),
-                        "current_equity": kwargs.get('current_equity'),
-                        "profit": kwargs.get('profit'),
-                        "profit_pct": kwargs.get('profit_pct'),
-                        "equity_point": kwargs.get('equity_point'),
-                        "recent_trades": kwargs.get('recent_trades'),
-                        "metrics": kwargs.get('metrics')
-                    })
+            # Progress callback (Async) - receives a dict from engine
+            async def progress_callback(data: dict):
+                # Extract data from the dict
+                progress = data.get('progress', 0)
+                current = data.get('current_timepoint', 0)
+                total = data.get('total_timepoints', 0)
+                
+                # Send progress update on EVERY timepoint for real-time progress bar
+                await queue.put({
+                    "type": "progress",
+                    "current": current,
+                    "total": total,
+                    "percent": round(progress, 1),
+                    "current_timepoint": current,
+                    "total_timepoints": total,
+                    "current_equity": data.get('current_equity'),
+                    "profit": data.get('profit'),
+                    "profit_pct": data.get('profit_pct'),
+                    "equity_point": data.get('latest_equity_point'),
+                    "recent_trades": data.get('latest_trade'),
+                    "metrics": data.get('metrics')
+                })
             
             # Run engine in background task
             async def run_engine():

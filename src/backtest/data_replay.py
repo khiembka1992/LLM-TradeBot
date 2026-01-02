@@ -184,16 +184,26 @@ class DataReplayAgent:
             funding_rates=funding_rates
         )
         
-        
         # Generate timestamp list (based on 5m K-lines)
         # IMPORTANT: Only include timestamps within backtest period, not historical lookback
         all_timestamps = df_5m.index.tolist()
-        self.timestamps = [ts for ts in all_timestamps if self.start_date <= ts <= self.end_date]
+        
+        # Debug: Print date range info
+        log.info(f"   Date comparison: start_date={self.start_date}, end_date={self.end_date}")
+        if all_timestamps:
+            log.info(f"   Data range: {all_timestamps[0]} to {all_timestamps[-1]}")
+        
+        # Filter timestamps to backtest period only
+        # self.start_date is datetime, df_5m.index is also datetime (pandas Timestamp)
+        self.timestamps = [ts for ts in all_timestamps if self.start_date <= ts < self.end_date]
         
         log.info(f"   5m: {len(df_5m)} candles (including lookback)")
         log.info(f"   15m: {len(df_15m)} candles")
         log.info(f"   1h: {len(df_1h)} candles")
-        log.info(f"   Backtest timestamps: {len(self.timestamps)}")
+        log.info(f"   Backtest period: {self.start_date} to {self.end_date}")
+        log.info(f"   Backtest timestamps (5m): {len(self.timestamps)}")
+        if self.timestamps:
+            log.info(f"   First: {self.timestamps[0]}, Last: {self.timestamps[-1]}")
     
     async def _fetch_funding_rates(self) -> List[FundingRateRecord]:
         """获取资金费率历史数据"""
@@ -359,13 +369,13 @@ class DataReplayAgent:
         
         self.timestamps = self.data_cache.df_5m.index.tolist()
     
-    def get_snapshot_at(self, timestamp: datetime, lookback: int = 300) -> MarketSnapshot:
+    def get_snapshot_at(self, timestamp: datetime, lookback: int = 1000) -> MarketSnapshot:
         """
         获取指定时间点的市场快照
         
         Args:
             timestamp: 目标时间点
-            lookback: 回看的 K 线数量
+            lookback: 回看的 K 线数量 (5m candles). Defaults to 1000 (~3.5 days) to ensure enough 1h data.
             
         Returns:
             MarketSnapshot 对象（与 DataSyncAgent 兼容）
@@ -374,9 +384,17 @@ class DataReplayAgent:
             raise ValueError("Data not loaded. Call load_data() first.")
         
         # 获取截止到 timestamp 的数据
+        # Ensure we have enough data for 1h analysis (need > 60 candles)
+        # 1000 5m candles = 83 1h candles.
+        
         df_5m = self.data_cache.df_5m[self.data_cache.df_5m.index <= timestamp].tail(lookback)
-        df_15m = self.data_cache.df_15m[self.data_cache.df_15m.index <= timestamp].tail(lookback // 3)
-        df_1h = self.data_cache.df_1h[self.data_cache.df_1h.index <= timestamp].tail(lookback // 12)
+        
+        # For 15m and 1h, we need at least 100 candles to be safe for indicators
+        lb_15m = max(lookback // 3, 100)
+        lb_1h = max(lookback // 12, 100)
+        
+        df_15m = self.data_cache.df_15m[self.data_cache.df_15m.index <= timestamp].tail(lb_15m)
+        df_1h = self.data_cache.df_1h[self.data_cache.df_1h.index <= timestamp].tail(lb_1h)
         
         # Stable view: 排除最后一根（未完成）
         # Live view: 最后一根（作为 Dict）

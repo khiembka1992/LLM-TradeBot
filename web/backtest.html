@@ -737,9 +737,9 @@
                                 <label style="font-size:0.8rem; color:#888;" data-i18n="backtest.label.step">⏱
                                     Step</label>
                                 <select id="step" style="width:100%; padding:6px;">
-                                    <option value="1" selected>5m</option>
+                                    <option value="1">5m</option>
                                     <option value="3">15m</option>
-                                    <option value="12">1h</option>
+                                    <option value="12" selected>1h</option>
                                 </select>
                             </div>
                             <div style="flex:0.5; min-width:70px;">
@@ -1505,6 +1505,10 @@
                     llm_throttle_ms: 100  // Throttle between LLM calls
                 };
 
+                // Debug: Log config to console
+                console.log('📋 Backtest Config:', config);
+                console.log('📊 Step value:', config.step, '(expected: 12 for 1h)');
+
                 // Validate dates
                 if (new Date(config.start_date) >= new Date(config.end_date)) {
                     alert('Start date must be before end date');
@@ -1514,7 +1518,7 @@
                 // Update UI
                 btn.disabled = true;
                 btn.innerHTML = '<span class="spinner"></span> Running...';
-                stopBtn.style.display = 'flex';  // Show stop button (matches CSS .stop-btn display: flex)
+                stopBtn.style.removeProperty('display');  // Remove inline display:none, let CSS take over
                 stopBtn.disabled = false;
                 progressSection.classList.add('active');
                 resultsSection.classList.remove('active');
@@ -1652,6 +1656,7 @@
                 } finally {
                     btn.disabled = false;
                     stopBtn.style.display = 'none';  // Hide stop button
+                    stopBtn.disabled = true;
                     backtestAbortController = null;
                     btn.innerHTML = '▶️ Run Backtest';
                     // Re-apply language to button text
