@@ -751,15 +751,17 @@ class BacktestPortfolio:
             current_prices: 当前价格字典 {symbol: price}
             
         Returns:
-            总净值 (现金 + 持仓价值)
+            总净值 (现金 + 持仓未实现盈亏)
         """
-        position_value = 0.0
+        unrealized_pnl = 0.0
         for symbol, position in self.positions.items():
             if symbol in current_prices:
                 pnl = position.get_pnl(current_prices[symbol])
-                position_value += position.notional_value + pnl
+                unrealized_pnl += pnl
         
-        return self.cash + position_value
+        # 净值 = 现金 + 未实现盈亏
+        # 注意：现金在开仓时已经扣除了保证金，所以这里只加未实现盈亏
+        return self.cash + unrealized_pnl
     
     def record_equity(
         self,

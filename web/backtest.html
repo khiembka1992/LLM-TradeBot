@@ -894,18 +894,25 @@
                 </div>
                 <div class="metrics-grid">
                     <div class="metric-card">
-                        <h3 data-i18n="backtest.results">📈 Returns</h3>
+                        <h3 data-i18n="backtest.results">📊 回测结果</h3>
                         <div class="metric-item">
-                            <span class="metric-label" data-i18n="metric.return">Total Return</span>
-                            <span class="metric-value" id="totalReturn">-</span>
+                            <span class="metric-label">最终金额</span>
+                            <span class="metric-value" id="finalEquity"
+                                style="font-size: 1.2em; font-weight: 700;">-</span>
                         </div>
                         <div class="metric-item">
-                            <span class="metric-label" data-i18n="metric.annual">Annualized Return</span>
-                            <span class="metric-value" id="annualizedReturn">-</span>
+                            <span class="metric-label">盈亏金额</span>
+                            <span class="metric-value" id="profitAmount">-</span>
                         </div>
                         <div class="metric-item">
-                            <span class="metric-label" data-i18n="metric.maxdd">Max Drawdown</span>
-                            <span class="metric-value negative" id="maxDrawdown">-</span>
+                            <span class="metric-label" data-i18n="metric.return">总收益率</span>
+                            <span class="metric-value" id="totalReturn"
+                                style="font-size: 1.1em; font-weight: 600;">-</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label" data-i18n="metric.maxdd">最大回撤</span>
+                            <span class="metric-value negative" id="maxDrawdown"
+                                style="font-size: 1.1em; font-weight: 600;">-</span>
                         </div>
                     </div>
 
@@ -1507,8 +1514,15 @@
                 // Update UI
                 btn.disabled = true;
                 btn.innerHTML = '<span class="spinner"></span> Running...';
-                stopBtn.style.removeProperty('display');  // Remove inline display:none, let CSS take over
+
+                // Show stop button with debug logging
+                console.log('🔍 Showing stop button...');
+                console.log('Stop button element:', stopBtn);
+                console.log('Stop button current display:', stopBtn.style.display);
+                stopBtn.style.display = 'inline-block';
                 stopBtn.disabled = false;
+                console.log('Stop button new display:', stopBtn.style.display);
+
                 progressSection.classList.add('active');
                 resultsSection.classList.remove('active');
 
@@ -1664,6 +1678,7 @@
                 // Update metrics
                 const updateMetric = (id, value, isPositive = null) => {
                     const el = document.getElementById(id);
+                    if (!el) return;
                     el.textContent = value;
                     if (isPositive !== null) {
                         el.classList.remove('positive', 'negative');
@@ -1671,7 +1686,15 @@
                     }
                 };
 
-                updateMetric('totalReturn', m.total_return, m.total_return >= 0);
+                // Use backend-provided final equity and profit amount (no frontend calculation)
+                const finalEquity = parseFloat(m.final_equity) || 0;
+                const profitAmount = parseFloat(m.profit_amount) || 0;
+
+                // Update new metrics with backend values
+                updateMetric('finalEquity', `$${finalEquity.toFixed(2)}`, profitAmount >= 0);
+                updateMetric('profitAmount', `$${profitAmount >= 0 ? '+' : ''}${profitAmount.toFixed(2)}`, profitAmount >= 0);
+
+                updateMetric('totalReturn', m.total_return, parseFloat(m.total_return) >= 0);
                 updateMetric('annualizedReturn', m.annualized_return, parseFloat(m.annualized_return) >= 0);
                 updateMetric('maxDrawdown', m.max_drawdown_pct, false);
                 updateMetric('sharpeRatio', m.sharpe_ratio);

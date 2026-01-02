@@ -23,6 +23,8 @@ class MetricsResult:
     # 收益指标
     total_return: float           # 总收益率 (%)
     annualized_return: float      # 年化收益率 (%)
+    final_equity: float           # 最终净值 ($)
+    profit_amount: float          # 盈亏金额 ($)
     max_drawdown: float           # 最大回撤 ($)
     max_drawdown_pct: float       # 最大回撤 (%)
     max_drawdown_duration: int    # 最大回撤持续时间 (天)
@@ -66,6 +68,8 @@ class MetricsResult:
             # 收益指标
             'total_return': f"{self.total_return:.2f}%",
             # 'annualized_return': f"{self.annualized_return:.2f}%",  # Removed: misleading for short backtests
+            'final_equity': f"{self.final_equity:.2f}",
+            'profit_amount': f"{self.profit_amount:+.2f}",
             'max_drawdown': f"${self.max_drawdown:.2f}",
             'max_drawdown_pct': f"{self.max_drawdown_pct:.2f}%",
             'max_drawdown_duration': f"{self.max_drawdown_duration} days",
@@ -166,10 +170,16 @@ class PerformanceMetrics:
         
         trading_days = len(set(t.timestamp.date() for t in closed_trades))
         
+        # 计算最终净值和盈亏金额
+        final_equity = equity_curve['total_equity'].iloc[-1] if not equity_curve.empty else initial_capital
+        profit_amount = final_equity - initial_capital
+        
         return MetricsResult(
             # 收益指标
             total_return=total_return,
             annualized_return=annualized_return,
+            final_equity=final_equity,
+            profit_amount=profit_amount,
             max_drawdown=max_dd,
             max_drawdown_pct=max_dd_pct,
             max_drawdown_duration=max_dd_duration,
