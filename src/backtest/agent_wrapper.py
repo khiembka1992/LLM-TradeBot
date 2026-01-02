@@ -198,7 +198,7 @@ class BacktestAgentRunner:
             self.llm_engine = None
             log.info("🤖 BacktestAgentRunner initialized (LLM disabled)")
 
-    async def step(self, snapshot) -> Dict:
+    async def step(self, snapshot, portfolio=None) -> Dict:
         """
         Process one backtest step
         """
@@ -252,7 +252,7 @@ class BacktestAgentRunner:
                 
                 # Call LLM with context
                 llm_decision = await self._call_llm_with_context(
-                    snapshot, quant_analysis, vote_result
+                    snapshot, quant_analysis, vote_result, portfolio
                 )
                 
                 # Merge LLM reasoning with quant signals
@@ -279,13 +279,13 @@ class BacktestAgentRunner:
                 'reason': f"Error: {str(e)}"
             }
     
-    async def _call_llm_with_context(self, snapshot, quant_analysis, vote_result):
+    async def _call_llm_with_context(self, snapshot, quant_analysis, vote_result, portfolio=None):
         """Call LLM with full market context"""
         import json
         from datetime import datetime
         
         # Build context string
-        context_text = self._build_llm_context(snapshot, quant_analysis, vote_result)
+        context_text = self._build_llm_context(snapshot, quant_analysis, vote_result, portfolio)
         
         # Build context data dict
         context_data = {
@@ -343,14 +343,24 @@ class BacktestAgentRunner:
             log.warning(f"LLM call failed: {e}, falling back to quant decision")
             return vote_result
     
-    def _build_llm_context(self, snapshot, quant_analysis, vote_result):
+    def _build_llm_context(self, snapshot, quant_analysis, vote_result, portfolio=None):
         """Build context string for LLM"""
         import json
         
         current_price = snapshot.live_5m.get('close', 0)
+        symbol = self.config.get('symbol', 'BTCUSDT')
+
+        # Position Info Construction
+        pos_info = "NO POSITION"
+        if portfolio and symbol in portfolio.positions:
+             pos = portfolio.positions[symbol]
+             # Assuming Side is Enum or object with name/value
+             side_str = str(pos.side).replace('Side.', '') 
+             pos_info = f"HOLDING {side_str} | Entry: ${pos.entry_price:.2f} | Unrealized PnL: {pos.unrealized_pnl_pct:.2f}% | Size: {pos.quantity:.4f}"
         
         return f"""Market Analysis Summary:
 - Current Price: ${current_price:.2f}
+- **Current Position**: {pos_info}
 - Quantitative Vote: {vote_result.action} (confidence: {vote_result.confidence:.1f}%)
 - Weighted Score: {vote_result.weighted_score:.1f}
 - Multi-Period Aligned: {vote_result.multi_period_aligned}

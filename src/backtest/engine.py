@@ -408,7 +408,7 @@ class BacktestEngine:
             
             if self.config.strategy_mode == "agent" and self.agent_runner:
                 log.info("DEBUG: Entering agent runner step")
-                decision = await self.agent_runner.step(snapshot)
+                decision = await self.agent_runner.step(snapshot, self.portfolio)
             else:
                 decision = await self.strategy_fn(
                     snapshot=snapshot,
@@ -442,49 +442,101 @@ class BacktestEngine:
         action = decision.get('action', 'hold')
         confidence = decision.get('confidence', 0.0)
         
+        # Normalize actions
+        if action == 'open_long': action = 'long'
+        if action == 'open_short': action = 'short'
+        
         symbol = self.config.symbol
         has_position = symbol in self.portfolio.positions
         
-        if action == 'hold':
+        # Handle Add Position (Treat as increasing existing position)
+        if action == 'add_position' and has_position:
+            # Re-map to long/short based on current side
+            current_side = self.portfolio.positions[symbol].side
+            action = 'long' if current_side == Side.LONG else 'short'
+            # Fall through to Open logic
+            
+        # Handle Reduce Position
+        if action == 'reduce_position' and has_position:
+            # Partial Close logic
+            current_pos = self.portfolio.positions[symbol]
+            reduce_pct = 0.5 # Default reduce by 50%
+            
+            # Check if LLM specified size
+            params = decision.get('trade_params') or {}
+            if params.get('position_size_pct', 0) > 0:
+                # Interpret as "Reduce BY X%" or "Reduce TO X%"? 
+                # Usually "Position Size" implies target. 
+                # Let's assume Reduce means "Close 50%" unless specific instructions.
+                # Simplest: Reduce 50%
+                pass
+            
+            reduce_qty = current_pos.quantity * reduce_pct
+            self.portfolio.close_position(
+                symbol=symbol,
+                price=current_price,
+                timestamp=timestamp,
+                quantity=reduce_qty,
+                reason='reduce_position'
+            )
             return
-        
-        if action in ['long', 'short'] and not has_position:
-            # 开仓
+
+        # Basic Action Filtering
+        if action == 'close' and has_position:
+            # 平仓
+            self.portfolio.close_position(
+                symbol=symbol,
+                price=current_price,
+                timestamp=timestamp,
+                reason='signal'
+            )
+            return
+
+        if action in ['long', 'short']:
             side = Side.LONG if action == 'long' else Side.SHORT
             
-            # 动态交易参数解析
+            # 处理反向持仓 (Reversal)
+            if has_position:
+                current_side = self.portfolio.positions[symbol].side
+                if current_side != side:
+                    # 反向信号，先平仓
+                    self.portfolio.close_position(
+                        symbol=symbol,
+                        price=current_price,
+                        timestamp=timestamp,
+                        reason='reverse_signal'
+                    )
+                    has_position = False # 标记为无持仓，以便下面执行开仓
+            
+            # 执行开/加仓 (Open / Add)
+            # 此时我们要么是无持仓(New/Reversal)，要么是同向持仓(Add)
+            
+            # --- 复制之前的动态参数逻辑 ---
             params = decision.get('trade_params') or {}
-            
-            # 1. 动态杠杆 (优先使用LLM建议，否则使用配置)
             leverage = params.get('leverage') or self.config.leverage
-            
-            # 2. 动态止盈止损
             sl_pct = params.get('stop_loss_pct') or self.config.stop_loss_pct
             tp_pct = params.get('take_profit_pct') or self.config.take_profit_pct
             
-            # 3. 动态仓位管理
-            # 如果LLM提供了 position_size_pct (资金占比)，则根据可用余额计算
             available_cash = self.portfolio.cash
             
             if params.get('position_size_pct', 0) > 0:
-                # LLM 指定了资金占比 (例如 20%)
                 use_cash = available_cash * (params['position_size_pct'] / 100)
-                # 仓位价值 = 投入资金 * 杠杆
-                # 限制最大仓位不能超过配置的 max_position_size * leverage
                 target_position_value = use_cash * leverage
-                
-                # 双重保险：不超过现金的98% (留点缓冲) 和 配置上限
                 position_size = min(
                     target_position_value,
                     available_cash * 0.98 * leverage,
                     self.config.max_position_size * leverage
                 )
             else:
-                # 默认逻辑: 使用配置的固定最大仓位
+                # 默认逻辑
                 position_size = min(
-                    self.config.max_position_size * self.config.leverage,
+                    self.config.max_position_size * leverage,
                     available_cash * 0.95
                 )
+            
+            # 如果是加仓，检查是否超过总上限 (Portfolio.open_position 通常处理增加，但我们需要控制总量)
+            # 简化起见，我们假设 position_size 是本次下单量 (Incremental)
+            # 对于 "Add"，Agent通常意味着 "Add X amount". 
             
             quantity = position_size / current_price
             
@@ -497,29 +549,6 @@ class BacktestEngine:
                     timestamp=timestamp,
                     stop_loss_pct=sl_pct,
                     take_profit_pct=tp_pct
-                )
-        
-        elif action == 'close' and has_position:
-            # 平仓
-            self.portfolio.close_position(
-                symbol=symbol,
-                price=current_price,
-                timestamp=timestamp,
-                reason='signal'
-            )
-        
-        elif action in ['long', 'short'] and has_position:
-            # 如果有持仓且方向相反，先平仓再开仓
-            current_side = self.portfolio.positions[symbol].side
-            new_side = Side.LONG if action == 'long' else Side.SHORT
-            
-            if current_side != new_side:
-                # 反向信号，平仓
-                self.portfolio.close_position(
-                    symbol=symbol,
-                    price=current_price,
-                    timestamp=timestamp,
-                    reason='reverse_signal'
                 )
     
     async def _close_all_positions(self):

@@ -434,8 +434,8 @@ class BacktestRequest(BaseModel):
     end_date: str
     initial_capital: float = 10000.0
     step: int = 3
-    stop_loss_pct: float = 1.0
-    take_profit_pct: float = 2.0
+    stop_loss_pct: float = 0.0
+    take_profit_pct: float = 0.0
     strategy_mode: str = "technical" # "technical" or "agent"
     use_llm: bool = False  # Enable LLM calls in backtest
     llm_cache: bool = True  # Cache LLM responses
