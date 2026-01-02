@@ -575,12 +575,12 @@ class BacktestPortfolio:
         # 计算止损止盈价格
         stop_loss = None
         take_profit = None
-        if stop_loss_pct is not None:
+        if stop_loss_pct is not None and stop_loss_pct > 0:
             if side == Side.LONG:
                 stop_loss = exec_price * (1 - stop_loss_pct / 100)
             else:
                 stop_loss = exec_price * (1 + stop_loss_pct / 100)
-        if take_profit_pct is not None:
+        if take_profit_pct is not None and take_profit_pct > 0:
             if side == Side.LONG:
                 take_profit = exec_price * (1 + take_profit_pct / 100)
             else:

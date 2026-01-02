@@ -442,6 +442,12 @@ class BacktestEngine:
         action = decision.get('action', 'hold')
         confidence = decision.get('confidence', 0.0)
         
+        # 0. Global Safety Check: Minimum Confidence 50%
+        # Filters out weak mechanical signals when LLM yields (0% confidence)
+        if action in ['long', 'short', 'open_long', 'open_short', 'add_position'] and confidence < 50:
+            log.warning(f"🚫 Confidence {confidence}% < 50% for {action}. Forcing WAIT.")
+            return {'action': 'wait', 'reason': 'low_confidence_filtering'}
+        
         # Normalize actions
         if action == 'open_long': action = 'long'
         if action == 'open_short': action = 'short'
