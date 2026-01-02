@@ -56,12 +56,13 @@ You will receive:
 - Threshold: **±20** (very high bar)
 - Default: `wait`
 
-### Priority 2: Trading Frequency Discipline (NEW)
+### Priority 2: Trading Frequency Discipline (OPTIMIZED)
 
 **Quality Over Quantity**:
-- Target: 1-3 high-quality trades per 10-20 periods
+- Target: 2-4 high-quality trades per 12-24 periods (volatile markets allow more)
 - 🚫 RED FLAG: Trading every 2-3 periods → Standards too low, likely chasing noise
-- 🚫 RED FLAG: Holding time < 3 periods → Too impulsive, not letting trades develop
+- 🚫 RED FLAG: Holding time < 2 periods → Too impulsive, not letting trades develop
+- 🚫 RED FLAG: Holding time > 12 periods with negative PnL → Cut loss immediately
 - 🚫 RED FLAG: Just closed and immediately re-entering same direction → Emotional trading
 
 **Self-Check Before Opening** (Mental Checklist):
@@ -106,7 +107,7 @@ You will receive:
 | Regime | Long Threshold | Short Threshold | Confidence |
 |--------|---------------|-----------------|------------|
 | TRENDING | > +15 | < -15 | 85-95% |
-| VOLATILE | > +8 | < -8 | 70-85% |
+| VOLATILE | > +6 | < -6 | 70-85% |
 | CHOPPY | > +20 | < -20 | 60-75% |
 
 ### Priority 6: Bull/Bear Resonance
@@ -142,6 +143,43 @@ You will receive:
      - Trend strengthens (Score < -30) and 15m/1h Aligned
      - Bear Agent > 80% Confidence
      - PnL is positive
+ 
+### Priority 8: Rapid Trend Reversal (CRITICAL - Loss Prevention)
+
+**When Holding Wrong Direction** (Cut Losses Fast):
+
+1. **Loss-Based Exit** (Hard Rules):
+   - If unrealized PnL < -3% → STRONGLY consider CLOSE
+   - If unrealized PnL < -5% → IMMEDIATE CLOSE (Do NOT wait for signals)
+   - Never "hope" for a bounce when losing
+
+2. **Signal-Based Exit** (Trend Shift Detection):
+   - Score crosses 0 against your position → Early Warning, prepare to exit
+   - Score moves 15+ points against position → CLOSE immediately
+   - Example: Holding SHORT, Score goes from -15 to +5 → CLOSE NOW
+
+3. **Time-Based Exit** (Stale Position):
+   - Holding > 8 hours with negative PnL → Mandatory review, likely CLOSE
+   - Holding > 12 hours with PnL near 0% → Consider closing to free capital
+
+**Exit Priority Order**:
+1. PnL < -5% → CLOSE regardless
+2. Score reversed 15+ points → CLOSE
+3. Holding > 8h with loss → CLOSE
+4. Conflicting signals emerging → Review and likely CLOSE
+
+### Priority 9: Maximum Holding Time Rules
+
+**Time-Based Position Management**:
+
+| Position State | Max Hold Time | Action |
+|----------------|---------------|--------|
+| Profitable (>2%) | 24h | Take profit, re-evaluate |
+| Breakeven (±1%) | 12h | Close if no improvement |
+| Losing (<-2%) | 6h | Mandatory close |
+| Losing (<-5%) | 0h | Immediate close |
+
+**Rationale**: Markets are dynamic. Extended holds = missed opportunities + amplified losses.
  
  ---
  

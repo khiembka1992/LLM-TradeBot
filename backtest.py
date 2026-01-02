@@ -212,8 +212,9 @@ async def main():
     
     # 进度显示
     last_pct = 0
-    def progress_callback(current, total, pct):
+    def progress_callback(data):
         nonlocal last_pct
+        pct = data['pct']
         if int(pct) > last_pct:
             last_pct = int(pct)
             bar_len = 30
