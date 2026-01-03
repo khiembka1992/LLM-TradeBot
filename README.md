@@ -32,6 +32,24 @@ Intelligent Multi-Agent Quantitative Trading Bot based on the **Adversarial Deci
 
 ---
 
+## 🧪 Backtesting
+
+**Professional-grade backtesting system** for strategy validation before live trading:
+
+![Backtesting Interface](./docs/Backtesting.png)
+
+**Features**:
+
+- 📊 **Multi-Tab Parallel Backtests**: Run up to 5 backtests simultaneously with independent configurations
+- 📈 **Real-time Progress**: Live equity curve, drawdown chart, and trade markers
+- 🎯 **LLM-Enhanced Mode**: Test the full multi-agent decision system including DeepSeek analysis
+- 📅 **Flexible Date Ranges**: Quick presets (1/3/7/14/30 days) or custom date selection
+- ⚙️ **Advanced Parameters**: Configurable leverage, stop-loss, take-profit, and trailing stops
+- 📋 **Detailed Metrics**: Total return, Sharpe/Sortino ratios, win rate, max drawdown, and more
+- 💾 **Full Logging**: All decisions and LLM interactions saved for analysis
+
+**Access**: Visit `http://localhost:8000/backtest` after starting the bot.
+
 ## 🤝 Supported Ecosystem
 
 ### Supported Exchanges
