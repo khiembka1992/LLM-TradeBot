@@ -333,19 +333,28 @@
             }
         }
 
-        // 🤖 Auto-fill for Local Mode
-        (async function checkLocalMode() {
+        // 🤖 Auto-fill password based on deployment mode
+        (async function checkDeploymentMode() {
             try {
                 const res = await fetch('/api/info');
                 const data = await res.json();
-                if (data.deployment_mode === 'local') {
-                    const pwdInput = document.getElementById('password');
-                    const badge = document.getElementById('localModeBadge');
+                const pwdInput = document.getElementById('password');
+                const badge = document.getElementById('localModeBadge');
 
+                if (data.deployment_mode === 'local') {
+                    // Local mode: auto-fill admin password
                     if (pwdInput) {
-                        pwdInput.value = 'admin'; // Default local password
+                        pwdInput.value = 'admin';
                         badge.style.display = 'block';
-                        console.log('🏠 Local mode detected: Password auto-filled');
+                        console.log('🏠 Local mode detected: Admin password auto-filled');
+                    }
+                } else if (data.deployment_mode === 'railway' || data.deployment_mode === 'production') {
+                    // Railway/Production mode: auto-fill guest password (read-only)
+                    if (pwdInput) {
+                        pwdInput.value = 'guest';
+                        badge.innerHTML = '<div class="local-mode-badge" style="background: rgba(59, 130, 246, 0.2); color: #3b82f6; border-color: rgba(59, 130, 246, 0.3);">☁️ Cloud Mode (Guest)</div>';
+                        badge.style.display = 'block';
+                        console.log('☁️ Cloud mode detected: Guest password auto-filled');
                     }
                 }
             } catch (e) {
