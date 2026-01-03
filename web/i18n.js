@@ -228,7 +228,20 @@ const i18n = {
         'metric.volatility': 'Volatility',
         'metric.longtrades': 'Long Trades',
         'metric.shorttrades': 'Short Trades',
-        'metric.avghold': 'Avg Hold Time'
+        'metric.avghold': 'Avg Hold Time',
+
+        // Backtest Live Metrics
+        'metric.currentequity': 'Current Equity:',
+        'metric.currentprofit': 'Profit:',
+        'metric.tradecount': 'Trades:',
+        'metric.livewrate': 'Win Rate:',
+        'metric.livemaxdd': 'Max DD:',
+        'metric.finalequity': 'Final Equity',
+        'metric.profit': 'Profit/Loss',
+        'backtest.liveequity': '📈 Live Equity Curve',
+        'backtest.livedrawdown': '📉 Live Drawdown',
+        'backtest.livetrades': '💼 Recent Trades',
+        'trade.price': 'Price'
     },
 
     zh: {
@@ -459,7 +472,20 @@ const i18n = {
         'metric.volatility': '波动率',
         'metric.longtrades': '做多次数',
         'metric.shorttrades': '做空次数',
-        'metric.avghold': '平均持仓时间'
+        'metric.avghold': '平均持仓时间',
+
+        // Backtest Live Metrics
+        'metric.currentequity': '当前净值:',
+        'metric.currentprofit': '收益:',
+        'metric.tradecount': '交易次数:',
+        'metric.livewrate': '胜率:',
+        'metric.livemaxdd': '最大回撤:',
+        'metric.finalequity': '最终金额',
+        'metric.profit': '盈亏金额',
+        'backtest.liveequity': '📈 实时净值曲线',
+        'backtest.livedrawdown': '📉 实时回撤曲线',
+        'backtest.livetrades': '💼 最近交易',
+        'trade.price': '价格'
     }
 };
 

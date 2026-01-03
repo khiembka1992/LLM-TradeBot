@@ -529,27 +529,38 @@
 
         .history-stats {
             display: flex;
-            gap: 15px;
-            text-align: right;
-            flex-wrap: wrap;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: nowrap;
+            margin-top: 8px;
         }
 
         .history-stat {
             display: flex;
             flex-direction: column;
-            gap: 3px;
-            min-width: 60px;
+            gap: 2px;
+            min-width: 70px;
+            text-align: center;
         }
 
         .history-stat .label {
-            font-size: 0.7rem;
+            font-size: 0.65rem;
             color: var(--text-secondary);
             text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
         .history-stat .value {
-            font-weight: 600;
-            font-size: 0.9rem;
+            font-weight: 700;
+            font-size: 0.95rem;
+        }
+
+        .history-stat .value.positive {
+            color: var(--accent-green);
+        }
+
+        .history-stat .value.negative {
+            color: var(--accent-red);
         }
 
         /* Loading Spinner */
@@ -1143,49 +1154,49 @@
                         <!-- Real-time Metrics -->
                         <div class="realtime-metrics" id="realtimeMetrics">
                             <div class="metric-row">
-                                <span class="metric-label">当前净值:</span>
+                                <span class="metric-label" data-i18n="metric.currentequity">Current Equity:</span>
                                 <span class="metric-value" id="currentEquity">$0.00</span>
                             </div>
                             <div class="metric-row">
-                                <span class="metric-label">收益:</span>
+                                <span class="metric-label" data-i18n="metric.currentprofit">Profit:</span>
                                 <span class="metric-value" id="currentProfit" style="color: #888;">$0.00 (0.00%)</span>
                             </div>
                             <div class="metric-row">
-                                <span class="metric-label">交易次数:</span>
+                                <span class="metric-label" data-i18n="metric.tradecount">Trades:</span>
                                 <span class="metric-value" id="liveTradeCount">0</span>
                             </div>
                             <div class="metric-row">
-                                <span class="metric-label">胜率:</span>
+                                <span class="metric-label" data-i18n="metric.livewrate">Win Rate:</span>
                                 <span class="metric-value" id="liveWinRate">0%</span>
                             </div>
                             <div class="metric-row">
-                                <span class="metric-label">最大回撤:</span>
+                                <span class="metric-label" data-i18n="metric.livemaxdd">Max DD:</span>
                                 <span class="metric-value negative" id="liveMaxDrawdown">0%</span>
                             </div>
                         </div>
 
                         <!-- Live Equity Chart -->
                         <div class="live-chart-container" id="liveChartContainer">
-                            <h4>📈 实时净值曲线</h4>
+                            <h4 data-i18n="backtest.liveequity">📈 Live Equity Curve</h4>
                             <canvas id="liveEquityChart" width="600" height="200"></canvas>
                         </div>
 
                         <!-- Live Drawdown Chart -->
                         <div class="live-chart-container" id="liveDrawdownContainer">
-                            <h4>📉 实时回撤曲线</h4>
+                            <h4 data-i18n="backtest.livedrawdown">📉 Live Drawdown</h4>
                             <canvas id="liveDrawdownChart" width="600" height="200"></canvas>
                         </div>
 
                         <!-- Live Trades -->
                         <div class="live-trades-container" id="liveTradesContainer">
-                            <h4>💼 最近交易</h4>
+                            <h4 data-i18n="backtest.livetrades">💼 Recent Trades</h4>
                             <table class="trades-table">
                                 <thead>
                                     <tr>
-                                        <th>时间</th>
-                                        <th>方向</th>
-                                        <th>价格</th>
-                                        <th>盈亏</th>
+                                        <th data-i18n="trade.time">Time</th>
+                                        <th data-i18n="trade.side">Side</th>
+                                        <th data-i18n="trade.price">Price</th>
+                                        <th data-i18n="trade.pnl">PnL</th>
                                     </tr>
                                 </thead>
                                 <tbody id="liveTradesBody">
@@ -1213,12 +1224,12 @@
                             <div class="metric-card">
                                 <h3 data-i18n="backtest.results">📊 回测结果</h3>
                                 <div class="metric-item">
-                                    <span class="metric-label">最终金额</span>
+                                    <span class="metric-label" data-i18n="metric.finalequity">Final Equity</span>
                                     <span class="metric-value" id="finalEquity"
                                         style="font-size: 1.2em; font-weight: 700;">-</span>
                                 </div>
                                 <div class="metric-item">
-                                    <span class="metric-label">盈亏金额</span>
+                                    <span class="metric-label" data-i18n="metric.profit">Profit/Loss</span>
                                     <span class="metric-value" id="profitAmount">-</span>
                                 </div>
                                 <div class="metric-item">
@@ -2716,7 +2727,6 @@
                                 <span class="run-time" style="font-weight:600; color:var(--accent);">
                                     ${hasData ? '👁️' : '🕐'} ${idDisplay} ${runTimeDisplay}
                                 </span>
-                                <span class="return-badge ${returnClass}" style="margin-left:auto;">${h.totalReturn}</span>
                             </div>
                             <div class="history-detail-row" style="margin-top:4px;">
                                 <span class="symbols" title="${symbolsTitle}" style="color:var(--text-secondary); font-size:0.85rem; word-break:break-word;">📊 ${symbolsDisplay}</span>
@@ -2728,6 +2738,10 @@
                         </div>
                         <div class="history-stats">
                             <div class="history-stat">
+                                <span class="label">${t('metric.return')}</span>
+                                <span class="value ${returnClass}">${h.totalReturn}</span>
+                            </div>
+                            <div class="history-stat">
                                 <span class="label">${t('metric.winrate.short')}</span>
                                 <span class="value">${h.winRate}</span>
                             </div>
@@ -2738,10 +2752,6 @@
                             <div class="history-stat">
                                 <span class="label">${t('metric.maxdd.short')}</span>
                                 <span class="value negative">${h.maxDrawdown || 'N/A'}</span>
-                            </div>
-                            <div class="history-stat">
-                                <span class="label">⏱️ 耗时</span>
-                                <span class="value" style="color:#64b5f6;">${formatDuration(h.duration)}</span>
                             </div>
                         </div>
                     </div>
