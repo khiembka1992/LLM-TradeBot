@@ -714,20 +714,22 @@
                                 }
                             };
                             
-                            // Save Config
+                            // Save Config - CRITICAL: credentials: 'include' for Railway HTTPS
                             const res = await fetch('/api/config', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify(data)
+                                body: JSON.stringify(data),
+                                credentials: 'include'
                             });
                             if (!res.ok) throw new Error(await res.text());
 
-                            // Save Prompt
+                            // Save Prompt - CRITICAL: credentials: 'include' for Railway HTTPS
                             const promptContent = document.getElementById('cfg-prompt').value;
                             const promptRes = await fetch('/api/config/prompt', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ content: promptContent })
+                                body: JSON.stringify({ content: promptContent }),
+                                credentials: 'include'
                             });
                             if (!promptRes.ok) throw new Error(await promptRes.text());
                             
