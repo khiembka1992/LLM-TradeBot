@@ -25,6 +25,7 @@ const i18n = {
         // Net Value Chart
         'chart.initial': 'Initial Balance',
         'chart.current': 'Current Funds',
+        'chart.available': 'Available',
         'chart.profit': 'Total Profit',
 
         // Decision Table - Agent Groups
@@ -269,6 +270,7 @@ const i18n = {
         // Net Value Chart
         'chart.initial': '初始余额',
         'chart.current': '当前资金',
+        'chart.available': '可用余额',
         'chart.profit': '总盈亏',
 
         // Decision Table - Agent Groups

@@ -1760,14 +1760,24 @@ class MultiAgentTradingBot:
         Args:
             action: 'long' or 'short'
             current_price: 当前价格
-            confidence: 决策置信度
+            confidence: 决策置信度 (0-1)
         
         Returns:
             订单参数字典
         """
-        # 计算仓位大小（根据置信度调整）
-        position_multiplier = min(confidence * 1.2, 1.0)  # 最高100%仓位
-        adjusted_position = self.max_position_size * position_multiplier
+        # 获取可用余额
+        if self.test_mode:
+            available_balance = global_state.virtual_balance
+        else:
+            available_balance = self._get_account_balance()
+        
+        # 动态仓位计算：置信度 100% 时使用可用余额的 30%
+        # 公式: 仓位比例 = 基础比例(30%) × 置信度
+        base_position_pct = 0.30  # 最大仓位比例 30%
+        position_pct = base_position_pct * min(confidence, 1.0)  # 根据置信度调整
+        
+        # 计算仓位金额（完全基于可用余额百分比）
+        adjusted_position = available_balance * position_pct
         
         # 计算数量
         quantity = adjusted_position / current_price
@@ -1786,6 +1796,8 @@ class MultiAgentTradingBot:
             'stop_loss': stop_loss,
             'take_profit': take_profit,
             'quantity': quantity,
+            'position_value': adjusted_position,  # 新增：实际仓位金额
+            'position_pct': position_pct * 100,   # 新增：仓位百分比
             'leverage': self.leverage,
             'confidence': confidence
         }

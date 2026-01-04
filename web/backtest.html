@@ -54,6 +54,65 @@
             text-decoration: underline;
         }
 
+        /* Live Status Indicator */
+        .live-status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #888;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        .status-dot.running {
+            background: #00ff9d;
+            box-shadow: 0 0 8px rgba(0, 255, 157, 0.6);
+        }
+
+        .status-dot.paused {
+            background: #f0ad4e;
+            box-shadow: 0 0 8px rgba(240, 173, 78, 0.6);
+            animation: none;
+        }
+
+        .status-dot.stopped {
+            background: #888;
+            animation: none;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        .live-status-text {
+            color: var(--text-secondary);
+        }
+
+        .live-status-text.running {
+            color: #00ff9d;
+        }
+
+        .live-status-text.paused {
+            color: #f0ad4e;
+        }
+
         /* Form Section */
         .backtest-form {
             background: var(--bg-card);
@@ -909,6 +968,13 @@
                 <a href="/" class="back-link" data-i18n="backtest.back">← Back to Dashboard</a>
                 <h1 data-i18n="backtest.title">🔬 Backtesting</h1>
             </div>
+
+            <!-- Live Status Indicator -->
+            <div class="live-status-indicator" id="liveStatusIndicator" title="Live trading status">
+                <span class="status-dot stopped" id="liveStatusDot"></span>
+                <span class="live-status-text" id="liveStatusText">Live: --</span>
+            </div>
+
             <button id="btn-lang" class="quick-btn" onclick="toggleLanguage()"
                 style="position:absolute; right:20px; top:20px;">
                 🌐 <span id="lang-text">中文</span>
@@ -1753,7 +1819,46 @@
 
             // Check for active backtests and reconnect
             checkActiveBacktests();
+
+            // Start live status polling
+            checkLiveStatus();
+            setInterval(checkLiveStatus, 5000); // Poll every 5 seconds
         });
+
+        // Check live trading status and update indicator
+        async function checkLiveStatus() {
+            try {
+                const response = await fetch('/api/status', { credentials: 'include' });
+                if (!response.ok) return;
+
+                const data = await response.json();
+                const dot = document.getElementById('liveStatusDot');
+                const text = document.getElementById('liveStatusText');
+
+                if (!dot || !text) return;
+
+                const mode = data.system?.mode || 'Stopped';
+
+                // Update dot class
+                dot.className = 'status-dot';
+                text.className = 'live-status-text';
+
+                if (mode === 'Running') {
+                    dot.classList.add('running');
+                    text.classList.add('running');
+                    text.textContent = 'Live: Running';
+                } else if (mode === 'Paused') {
+                    dot.classList.add('paused');
+                    text.classList.add('paused');
+                    text.textContent = 'Live: Paused';
+                } else {
+                    dot.classList.add('stopped');
+                    text.textContent = 'Live: Stopped';
+                }
+            } catch (e) {
+                console.error('Failed to check live status:', e);
+            }
+        }
 
         // Check for active backtests and reconnect to their streams
         async function checkActiveBacktests() {

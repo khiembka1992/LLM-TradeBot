@@ -243,6 +243,7 @@ function updateDashboard() {
                 activeAccount = {
                     total_equity: va.current_balance + unrealized,
                     wallet_balance: va.current_balance,
+                    available_balance: va.available_balance || va.current_balance,  // 可用余额 = 资金 - 持仓
                     total_pnl: unrealized,
                     initial_balance: va.initial_balance // ✅ Explicitly pass Initial Balance
                 };
@@ -584,11 +585,13 @@ function renderAccount(account) {
 
     const totalEquity = account.total_equity || 0;
     const walletBalance = account.wallet_balance || 0;
+    const availableBalance = account.available_balance || walletBalance;  // 可用余额
     const totalPnl = account.total_pnl || 0;
 
     setTxt('acc-equity', fmt(totalEquity));
     setTxt('header-equity', fmt(totalEquity));
     setTxt('account-wallet-balance', fmt(walletBalance));
+    setTxt('account-available-balance', fmt(availableBalance));  // 显示可用余额
     setTxt('acc-initial', fmt(initialBalance));
 
     // PnL calculation and styling
