@@ -25,26 +25,116 @@ from src.agents.regime_detector import RegimeDetector
 from src.agents.predict_agent import PredictResult
 
 
+# ============================================
+# 过度交易防护 (Overtrading Guard)
+# ============================================
+@dataclass
+class TradeRecord:
+    """交易记录"""
+    symbol: str
+    action: str
+    timestamp: datetime
+    pnl: float = 0.0
+
+
+class OvertradingGuard:
+    """
+    过度交易防护 - 防止频繁交易和连续亏损
+    
+    规则:
+    - 同一symbol最少间隔2个周期
+    - 6小时内最多3个新仓位
+    - 连续2次亏损后，需要等待4个周期
+    """
+    
+    MIN_CYCLES_SAME_SYMBOL = 2        # 同symbol最小间隔周期
+    MAX_POSITIONS_6H = 3              # 6小时内最多开仓数
+    LOSS_STREAK_COOLDOWN = 4          # 连续亏损后冷却周期
+    CONSECUTIVE_LOSS_THRESHOLD = 2   # 触发冷却的连续亏损次数
+    
+    def __init__(self):
+        self.trade_history: List[TradeRecord] = []
+        self.consecutive_losses = 0
+        self.last_trade_cycle: Dict[str, int] = {}  # symbol -> cycle
+        self.cooldown_until_cycle: int = 0
+    
+    def record_trade(self, symbol: str, action: str, pnl: float = 0.0, current_cycle: int = 0):
+        """记录一笔交易"""
+        self.trade_history.append(TradeRecord(
+            symbol=symbol,
+            action=action,
+            timestamp=datetime.now(),
+            pnl=pnl
+        ))
+        self.last_trade_cycle[symbol] = current_cycle
+        
+        # 追踪连续亏损
+        if pnl < 0:
+            self.consecutive_losses += 1
+            if self.consecutive_losses >= self.CONSECUTIVE_LOSS_THRESHOLD:
+                self.cooldown_until_cycle = current_cycle + self.LOSS_STREAK_COOLDOWN
+                log(f"⚠️ 连续{self.consecutive_losses}次亏损，冷却至周期 {self.cooldown_until_cycle}")
+        else:
+            self.consecutive_losses = 0
+    
+    def can_open_position(self, symbol: str, current_cycle: int = 0) -> Tuple[bool, str]:
+        """
+        检查是否可以开仓
+        
+        Returns:
+            (allowed, reason)
+        """
+        # 检查冷却期
+        if current_cycle < self.cooldown_until_cycle:
+            remaining = self.cooldown_until_cycle - current_cycle
+            return False, f"⛔ 连续亏损冷却中，剩余{remaining}周期"
+        
+        # 检查同symbol间隔
+        if symbol in self.last_trade_cycle:
+            cycles_since = current_cycle - self.last_trade_cycle[symbol]
+            if cycles_since < self.MIN_CYCLES_SAME_SYMBOL:
+                return False, f"⛔ {symbol}交易间隔不足，需等待{self.MIN_CYCLES_SAME_SYMBOL - cycles_since}周期"
+        
+        # 检查6小时内开仓数
+        six_hours_ago = datetime.now().timestamp() - 6 * 3600
+        recent_opens = sum(
+            1 for t in self.trade_history 
+            if t.timestamp.timestamp() > six_hours_ago and 'open' in t.action.lower()
+        )
+        if recent_opens >= self.MAX_POSITIONS_6H:
+            return False, f"⛔ 6小时内已开{recent_opens}仓，已达上限{self.MAX_POSITIONS_6H}"
+        
+        return True, "✅ 允许开仓"
+    
+    def get_status(self) -> Dict:
+        """获取当前状态"""
+        return {
+            'consecutive_losses': self.consecutive_losses,
+            'cooldown_until': self.cooldown_until_cycle,
+            'recent_trades': len(self.trade_history),
+            'symbols_traded': list(self.last_trade_cycle.keys())
+        }
+
+
 @dataclass
 class SignalWeight:
     """信号权重配置
     
     注意: 所有权重应该合计为 1.0 (不包括动态 sentiment)
-    当前配置: trend(0.45) + oscillator(0.20) + prophet(0.15) = 0.80
-    sentiment 使用动态权重 (0.20)
+    优化后配置 (2026-01-05): 基于历史交易数据分析调整
     """
-    # 趋势信号 (合计 0.35) - OPTIMIZATION (Phase 3): Reduced from 0.45
-    trend_5m: float = 0.05   # Reduced from 0.10
-    trend_15m: float = 0.10  # Reduced from 0.15
-    trend_1h: float = 0.20   # Kept same (Core trend backbone)
+    # 趋势信号 (合计 0.40) - OPTIMIZED: 增加1h权重，减少短周期噪音
+    trend_5m: float = 0.05   # 保持不变
+    trend_15m: float = 0.10  # 保持不变
+    trend_1h: float = 0.25   # 从 0.20 增加到 0.25 (更重视长周期趋势)
     # 震荡信号 (合计 0.20)
     oscillator_5m: float = 0.05
     oscillator_15m: float = 0.07
     oscillator_1h: float = 0.08
-    # Prophet ML 预测权重
-    prophet: float = 0.15
-    # 情绪信号 (动态权重，有数据时 0.30，无数据时 0) - OPTIMIZATION (Phase 3): Increased from 0.20
-    sentiment: float = 0.30
+    # Prophet ML 预测权重 - OPTIMIZED: 从 0.15 减少到 0.10
+    prophet: float = 0.10  # 减少ML预测权重，更依赖技术指标
+    # 情绪信号 (动态权重) - OPTIMIZED: 从 0.30 减少到 0.25
+    sentiment: float = 0.25  # 减少情绪权重，避免过度反应
     # 其他扩展信号（如LLM）
     llm_signal: float = 0.0  # 待整合
 
@@ -96,6 +186,10 @@ class DecisionCoreAgent:
             'oscillator_1h': {'total': 0, 'correct': 0},
         }
         
+        # 初始化交易防护
+        self.overtrading_guard = OvertradingGuard()
+        self.current_cycle = 0  # 当前周期计数
+        
     async def make_decision(
         self, 
         quant_analysis: Dict, 
@@ -113,7 +207,15 @@ class DecisionCoreAgent:
         Returns:
             VoteResult对象
         """
-        # 1. 提取各信号分数
+        # 更新周期计数
+        self.current_cycle += 1
+        symbol = quant_analysis.get('symbol', 'UNKNOWN')
+        
+        # ========== 过度交易检查 ==========
+        overtrade_allowed, overtrade_reason = self.overtrading_guard.can_open_position(
+            symbol, self.current_cycle
+        )
+        
         # 1. 提取各信号分数
         # Fix: Read from granular scores provided by QuantAnalystAgent
         trend_data = quant_analysis.get('trend', {})
@@ -206,6 +308,15 @@ class DecisionCoreAgent:
         
         # 7. 初始决策映射（传入 regime 以使用动态阈值）
         action, base_confidence = self._score_to_action(weighted_score, aligned, regime)
+        
+        # ========== 交易防护拦截 ==========
+        if action in ['long', 'short', 'open_long', 'open_short']:
+            # 检查过度交易
+            if not overtrade_allowed:
+                log(f"🚫 过度交易防护: {overtrade_reason}")
+                action = 'hold'
+                base_confidence = 0.1
+                alignment_reason = overtrade_reason
         
         # 8. 综合信心度校准与对抗审计
         final_confidence = base_confidence * 100
