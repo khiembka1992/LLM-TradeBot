@@ -72,6 +72,14 @@ class BinanceWebSocketManager:
             self._is_running = True
             log.info(f"🚀 WebSocket Manager 启动成功: {self.symbol}")
             
+        except RuntimeError as e:
+            # Re-raise event loop conflicts so caller can handle fallback
+            if "event loop" in str(e).lower():
+                log.warning(f"⚠️ WebSocket 事件循环冲突: {e}")
+                self.stop()
+                raise
+            log.error(f"❌ WebSocket 启动失败: {e}")
+            self.stop()
         except Exception as e:
             log.error(f"❌ WebSocket 启动失败: {e}")
             self.stop()

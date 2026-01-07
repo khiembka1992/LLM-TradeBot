@@ -135,6 +135,13 @@ class DataSyncAgent:
                     ws_manager.start()
                     self.ws_managers[symbol_key] = ws_manager
                     log.info(f"🚀 WebSocket Manager started: {symbol_key}")
+                except RuntimeError as e:
+                    if "event loop" in str(e).lower():
+                        log.warning(f"[{symbol}] WebSocket 事件循环冲突，回退到 REST API: {e}")
+                    else:
+                        log.warning(f"[{symbol}] WebSocket 启动失败 (RuntimeError)，回退到 REST API: {e}")
+                    self._ws_disabled_symbols.add(symbol_key)
+                    ws_enabled = False
                 except Exception as e:
                     log.warning(f"[{symbol}] WebSocket 启动失败，回退到 REST API: {e}")
                     self._ws_disabled_symbols.add(symbol_key)
