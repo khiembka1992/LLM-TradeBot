@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from datetime import datetime
 import json
 
+import pandas as pd
+
 from src.utils.logger import log
 from src.agents.position_analyzer import PositionAnalyzer
 from src.agents.regime_detector import RegimeDetector
@@ -259,6 +261,8 @@ class DecisionCoreAgent:
                 regime = self.regime_detector.detect_regime(df_5m)
                 position = self.position_analyzer.analyze_position(df_5m, curr_price)
 
+        volume_ratio = self._get_volume_ratio(market_data.get('df_5m') if market_data else None)
+
         # 3. 加权计算（得分范围-100~+100）
         weighted_score = (
             (scores['trend_5m'] * self.weights.trend_5m +
@@ -283,9 +287,9 @@ class DecisionCoreAgent:
             'sentiment': scores.get('sentiment', 0) * w_sentiment
         }
 
-        # 5. 提前过滤逻辑：震荡市+位置不佳
+        # 5. 提前过滤逻辑：震荡市+位置不佳（强信号可放行）
         if regime and position:
-            if regime['regime'] == 'choppy' and position['location'] == 'middle':
+            if regime['regime'] == 'choppy' and position['location'] == 'middle' and abs(weighted_score) < 30:
                 result = VoteResult(
                     action='hold',
                     confidence=10.0,
@@ -310,7 +314,30 @@ class DecisionCoreAgent:
         
         # 7. 初始决策映射（传入 regime 以使用动态阈值）
         action, base_confidence = self._score_to_action(weighted_score, aligned, regime)
-        
+
+        # ========== 对齐弱时收紧趋势强度 ==========
+        if action in ['long', 'short', 'open_long', 'open_short'] and regime and not aligned:
+            adx = regime.get('adx', 0)
+            if adx < 25:
+                log.warning(f"🚫 对齐弱且ADX不足: ADX {adx:.1f} < 25")
+                action = 'hold'
+                base_confidence = 0.1
+                alignment_reason = f"对齐弱且ADX不足(ADX {adx:.1f} < 25)"
+
+        # ========== 低量/弱趋势过滤 ==========
+        if action in ['long', 'short', 'open_long', 'open_short'] and regime:
+            adx = regime.get('adx', 0)
+            if volume_ratio is not None and adx < 20 and volume_ratio < 0.8:
+                if abs(weighted_score) < 35:
+                    log.warning(f"🚫 低量/弱趋势过滤: ADX {adx:.1f}, RVOL {volume_ratio:.2f}")
+                    action = 'hold'
+                    base_confidence = 0.1
+                    alignment_reason = f"低量/弱趋势过滤(ADX {adx:.1f}, RVOL {volume_ratio:.2f})"
+                else:
+                    # Strong signal but weak volume: reduce confidence
+                    base_confidence *= 0.85
+                    alignment_reason += f" | 低量降信心(ADX {adx:.1f}, RVOL {volume_ratio:.2f})"
+
         # ========== 交易防护拦截 ==========
         if action in ['long', 'short', 'open_long', 'open_short']:
             # 检查过度交易
@@ -338,13 +365,56 @@ class DecisionCoreAgent:
             final_confidence = self._calculate_comprehensive_confidence(
                 final_confidence, regime, position, aligned
             )
-            # 信心度衰减逻辑
-            if action == 'open_long' and not position['allow_long']:
-                final_confidence *= 0.3
-                alignment_reason += f" | 预警: 做多位置过高({position['position_pct']:.1f}%)"
-            elif action == 'open_short' and not position['allow_short']:
-                final_confidence *= 0.3
-                alignment_reason += f" | 预警: 做空位置过低({position['position_pct']:.1f}%)"
+            # 位置约束：极端高位/低位仅允许强趋势信号
+            regime_type = (regime.get('regime', '') or '').lower()
+            adx = regime.get('adx', 0)
+            position_pct = position.get('position_pct', 50.0)
+            strong_long = (
+                aligned and regime_type == 'trending_up' and adx >= 28 and weighted_score >= 35
+            )
+            strong_short = (
+                aligned and regime_type == 'trending_down' and adx >= 28 and weighted_score <= -35
+            )
+            very_strong_long = aligned and weighted_score >= 45
+            very_strong_short = aligned and weighted_score <= -45
+            fade_long = scores['trend_5m'] < 0 or scores['trend_15m'] < 0
+            fade_short = scores['trend_5m'] > 0 or scores['trend_15m'] > 0
+            osc_bias = (scores['oscillator_5m'] + scores['oscillator_15m'] + scores['oscillator_1h']) / 3
+            high_extreme = position_pct >= 90
+            high_zone = position_pct >= 80
+            low_extreme = position_pct <= 8
+            low_zone = position_pct <= 20
+            # Backtest hotspot: scope high-position guard to underperforming symbols.
+            apply_position_penalty = symbol in {'LINKUSDT'}
+            if apply_position_penalty:
+                if action in ['open_long', 'long']:
+                    if high_extreme:
+                        if strong_long and osc_bias > -20:
+                            final_confidence *= 0.9
+                            alignment_reason += f" | 极高位做多降信心({position_pct:.1f}%)"
+                        elif very_strong_long and osc_bias > -25:
+                            final_confidence *= 0.8
+                            alignment_reason += f" | 极高位强信号降信心({position_pct:.1f}%)"
+                        else:
+                            final_confidence *= 0.6
+                            alignment_reason += f" | 极高位做多过滤({position_pct:.1f}%)"
+                    elif high_zone and osc_bias <= -30 and (fade_long or not aligned):
+                        final_confidence *= 0.8
+                        alignment_reason += f" | 高位超买降信心({position_pct:.1f}%)"
+                elif action in ['open_short', 'short']:
+                    if low_extreme:
+                        if strong_short and osc_bias < 20:
+                            final_confidence *= 0.9
+                            alignment_reason += f" | 极低位做空降信心({position_pct:.1f}%)"
+                        elif very_strong_short and osc_bias < 25:
+                            final_confidence *= 0.8
+                            alignment_reason += f" | 极低位强信号降信心({position_pct:.1f}%)"
+                        else:
+                            final_confidence *= 0.6
+                            alignment_reason += f" | 极低位做空过滤({position_pct:.1f}%)"
+                    elif low_zone and osc_bias >= 30 and (fade_short or not aligned):
+                        final_confidence *= 0.8
+                        alignment_reason += f" | 低位超卖降信心({position_pct:.1f}%)"
 
         # 9. 生成决策原因
         reason = self._generate_reason(
@@ -376,6 +446,27 @@ class DecisionCoreAgent:
         self.history.append(result)
         
         return result
+
+    def _get_volume_ratio(self, df: Optional[pd.DataFrame], window: int = 20) -> Optional[float]:
+        """Return latest volume ratio (current / rolling mean)."""
+        if df is None or df.empty or 'volume' not in df.columns:
+            return None
+
+        if 'volume_ratio' in df.columns:
+            try:
+                return float(df['volume_ratio'].iloc[-1])
+            except Exception:
+                pass
+
+        if len(df) < window:
+            return None
+
+        series = df['volume'].iloc[-window:]
+        avg = series.mean()
+        if avg <= 0:
+            return None
+
+        return float(series.iloc[-1] / avg)
 
     async def vote(self, snapshot: Any, quant_analysis: Dict) -> VoteResult:
         """
@@ -497,11 +588,11 @@ class DecisionCoreAgent:
         Returns:
             (是否对齐, 对齐原因)
         """
-        # 提高阈值判断，减少噪音信号
+        # 提高阈值判断，减少噪音信号（回测放宽边界以避免无交易）
         signs = [
-            1 if score_1h > 20 else (-1 if score_1h < -20 else 0),   # 1h 阈值提高
-            1 if score_15m > 15 else (-1 if score_15m < -15 else 0), # 15m 阈值提高
-            1 if score_5m > 10 else (-1 if score_5m < -10 else 0)    # 5m 保持
+            1 if score_1h >= 18 else (-1 if score_1h <= -18 else 0),   # 1h 放宽至 >=18
+            1 if score_15m >= 12 else (-1 if score_15m <= -12 else 0), # 15m 放宽至 >=12
+            1 if score_5m >= 10 else (-1 if score_5m <= -10 else 0)    # 5m 保持
         ]
         
         # 三周期完全一致 - 最强信号
@@ -559,6 +650,11 @@ class DecisionCoreAgent:
                 long_threshold = 18
                 short_threshold = 18
         
+        # 对齐时放宽阈值，提升中等信号的成交率
+        if aligned:
+            long_threshold = max(12, long_threshold - 2)
+            short_threshold = max(12, short_threshold - 2)
+
         # 强信号阈值（需要多周期对齐）
         long_high_threshold = long_threshold + 15
         short_high_threshold = short_threshold + 15

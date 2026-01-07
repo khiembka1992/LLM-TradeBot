@@ -7,6 +7,8 @@ import pandas as pd
 import numpy as np
 from typing import Dict
 from enum import Enum
+from ta.trend import ADXIndicator
+from ta.volatility import BollingerBands, AverageTrueRange
 
 
 class MarketRegime(Enum):
@@ -130,11 +132,28 @@ class RegimeDetector:
         # 如果已有 ADX 列，直接使用
         if 'adx' in df.columns:
             return df['adx'].iloc[-1]
+
+        # 从原始 OHLC 计算 ADX（兼容回测原始K线）
+        if {'high', 'low', 'close'}.issubset(df.columns) and len(df) >= 20:
+            try:
+                tail = df[['high', 'low', 'close']].tail(200)
+                adx = ADXIndicator(
+                    high=tail['high'],
+                    low=tail['low'],
+                    close=tail['close'],
+                    window=14
+                ).adx().iloc[-1]
+                return float(adx)
+            except Exception:
+                pass
         
         # 否则简化计算（使用 EMA 差值作为替代）
-        if 'ema_12' in df.columns and 'ema_26' in df.columns:
-            ema_diff = abs(df['ema_12'].iloc[-1] - df['ema_26'].iloc[-1])
-            price = df['close'].iloc[-1]
+        if 'close' in df.columns and len(df) >= 26:
+            close = df['close']
+            ema12 = close.ewm(span=12, adjust=False).mean().iloc[-1]
+            ema26 = close.ewm(span=26, adjust=False).mean().iloc[-1]
+            ema_diff = abs(ema12 - ema26)
+            price = close.iloc[-1]
             adx_proxy = (ema_diff / price) * 100 * 10  # 转换为类似 ADX 的值
             return adx_proxy
         
@@ -155,6 +174,19 @@ class RegimeDetector:
             if middle > 0:
                 width_pct = ((upper - lower) / middle) * 100
                 return width_pct
+
+        # 从原始价格计算布林带
+        if 'close' in df.columns and len(df) >= 20:
+            try:
+                close = df['close'].tail(200)
+                bb = BollingerBands(close=close, window=20, window_dev=2)
+                upper = bb.bollinger_hband().iloc[-1]
+                lower = bb.bollinger_lband().iloc[-1]
+                middle = bb.bollinger_mavg().iloc[-1]
+                if middle > 0:
+                    return ((upper - lower) / middle) * 100
+            except Exception:
+                pass
         
         # 无法计算，返回默认值
         return 2.0
@@ -172,6 +204,22 @@ class RegimeDetector:
             if price > 0:
                 atr_pct = (atr / price) * 100
                 return atr_pct
+
+        # 从原始 OHLC 计算 ATR
+        if {'high', 'low', 'close'}.issubset(df.columns) and len(df) >= 20:
+            try:
+                tail = df[['high', 'low', 'close']].tail(200)
+                atr = AverageTrueRange(
+                    high=tail['high'],
+                    low=tail['low'],
+                    close=tail['close'],
+                    window=14
+                ).average_true_range().iloc[-1]
+                price = tail['close'].iloc[-1]
+                if price > 0:
+                    return (float(atr) / price) * 100
+            except Exception:
+                pass
         
         # 无法计算，返回默认值
         return 0.5
@@ -191,6 +239,17 @@ class RegimeDetector:
             if price > sma20 > sma50:
                 return 'up'
             elif price < sma20 < sma50:
+                return 'down'
+
+        # 从原始收盘价计算 SMA
+        if 'close' in df.columns and len(df) >= 50:
+            close = df['close'].tail(200)
+            sma20 = close.rolling(window=20).mean().iloc[-1]
+            sma50 = close.rolling(window=50).mean().iloc[-1]
+            price = close.iloc[-1]
+            if price > sma20 > sma50:
+                return 'up'
+            if price < sma20 < sma50:
                 return 'down'
         
         return 'neutral'
