@@ -2664,6 +2664,8 @@ def main():
     parser.add_argument('--stop-loss', type=float, default=1.0, help='止损百分比')
     parser.add_argument('--take-profit', type=float, default=2.0, help='止盈百分比')
     parser.add_argument('--kline-limit', type=int, default=300, help='K线拉取数量 (用于 warmup 测试)')
+    parser.add_argument('--symbols', type=str, default='', help='覆盖交易对 (CSV, 例如: BTCUSDT,ETHUSDT)')
+    parser.add_argument('--skip-auto2', action='store_true', help='在 once 模式跳过 AUTO2 解析')
     parser.add_argument('--mode', choices=['once', 'continuous'], default='continuous', help='运行模式')
     parser.add_argument('--interval', type=float, default=3.0, help='持续运行间隔（分钟）')
     
@@ -2678,6 +2680,9 @@ def main():
         args.test = True
     elif args.test and env_run_mode == 'live':
         pass # Command line override to force test? or live? Let's say explicit CLI wins.
+
+    if args.symbols:
+        os.environ['TRADING_SYMBOLS'] = args.symbols.strip()
         
     print(f"🔧 Startup Mode: {'TEST' if args.test else 'LIVE'} (Env: {env_run_mode})")
     
@@ -2718,6 +2723,11 @@ def main():
     )
     
     # 🔝 AUTO2 STARTUP EXECUTION (MANDATORY - runs before trading starts)
+    skip_auto2 = args.skip_auto2 and args.mode == 'once'
+    if skip_auto2 and getattr(bot, 'use_auto2', False):
+        log.info("⏭️ AUTO2 skipped for once mode")
+        bot.use_auto2 = False
+
     if hasattr(bot, 'use_auto2') and bot.use_auto2:
         log.info("=" * 60)
         log.info("🔝 AUTO2 STARTUP - Getting AI500 Top5 and selecting Top2...")
