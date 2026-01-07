@@ -111,7 +111,8 @@ class MultiAgentTradingBot:
         leverage: int = 1,
         stop_loss_pct: float = 1.0,
         take_profit_pct: float = 2.0,
-        test_mode: bool = False
+        test_mode: bool = False,
+        kline_limit: int = 300
     ):
         """
         初始化多Agent交易机器人
@@ -197,6 +198,7 @@ class MultiAgentTradingBot:
         self.leverage = leverage
         self.stop_loss_pct = stop_loss_pct
         self.take_profit_pct = take_profit_pct
+        self.kline_limit = int(kline_limit) if kline_limit and kline_limit > 0 else 300
         
         
         # 初始化客户端
@@ -267,6 +269,7 @@ class MultiAgentTradingBot:
         print(f"  - Leverage: {self.leverage}x")
         print(f"  - Stop Loss: {self.stop_loss_pct}%")
         print(f"  - Take Profit: {self.take_profit_pct}%")
+        print(f"  - Kline Limit: {self.kline_limit}")
         print(f"  - Test Mode: {'✅ Yes' if self.test_mode else '❌ No'}")
         
         # ✅ Load initial trade history (Only in Live Mode)
@@ -424,6 +427,87 @@ class MultiAgentTradingBot:
         
         log.info(f"🔝 AUTO2 resolved to: {', '.join(top2)}")
         return top2
+
+    def _get_closed_klines(self, klines: List[Dict]) -> List[Dict]:
+        """Return klines confirmed closed (avoid dropping already-closed bars)."""
+        if not klines:
+            return []
+
+        last = klines[-1]
+        if last.get('is_closed') is True:
+            return klines
+
+        close_time = last.get('close_time')
+        if close_time is not None:
+            try:
+                now_ms = int(datetime.now().timestamp() * 1000)
+                if int(close_time) <= now_ms:
+                    return klines
+            except (TypeError, ValueError):
+                pass
+
+        return klines[:-1]
+
+    def _assess_data_readiness(self, processed_dfs: Dict[str, object]) -> Dict:
+        """Check warmup/is_valid flags for all timeframes before making decisions."""
+        readiness = {
+            'is_ready': True,
+            'details': {},
+            'blocking_reason': None
+        }
+
+        min_valid_index = self.processor._get_min_valid_index()
+        required_bars = min_valid_index + 1
+
+        for tf in ['5m', '15m', '1h']:
+            df = processed_dfs.get(tf)
+            if df is None or df.empty:
+                readiness['is_ready'] = False
+                readiness['details'][tf] = {
+                    'is_valid': False,
+                    'bars': 0,
+                    'bars_needed': required_bars,
+                    'bars_remaining': required_bars,
+                    'reason': 'no_data'
+                }
+                continue
+
+            reason = None
+            if 'is_valid' in df.columns:
+                latest_valid = bool(df['is_valid'].iloc[-1] == True)
+            elif 'is_warmup' in df.columns:
+                latest_valid = bool(df['is_warmup'].iloc[-1] == False)
+            else:
+                latest_valid = False
+                reason = 'missing_valid_flag'
+
+            bars = len(df)
+            bars_remaining = max(0, required_bars - bars)
+
+            readiness['details'][tf] = {
+                'is_valid': latest_valid,
+                'bars': bars,
+                'bars_needed': required_bars,
+                'bars_remaining': bars_remaining,
+                'reason': reason
+            }
+
+            if not latest_valid:
+                readiness['is_ready'] = False
+
+        if not readiness['is_ready']:
+            reasons = []
+            for tf, info in readiness['details'].items():
+                if not info['is_valid']:
+                    if info.get('reason'):
+                        reasons.append(f"{tf}:{info['reason']}")
+                    elif info.get('bars', 0) > 0:
+                        reasons.append(f"{tf}:warmup {info['bars']}/{info['bars_needed']}")
+                    else:
+                        reasons.append(f"{tf}:no_data")
+            readiness['blocking_reason'] = "data_warmup: " + ", ".join(reasons)
+
+        return readiness
     
     
     
@@ -515,7 +599,10 @@ class MultiAgentTradingBot:
             # Step 1: 采样 - 数据先知 (The Oracle)
             print("\n[Step 1/4] 🕵️ The Oracle (Data Agent) - Fetching data...")
             global_state.oracle_status = "Fetching Data..." 
-            market_snapshot = await self.data_sync_agent.fetch_all_timeframes(self.current_symbol)
+            market_snapshot = await self.data_sync_agent.fetch_all_timeframes(
+                self.current_symbol,
+                limit=self.kline_limit
+            )
             global_state.oracle_status = "Data Ready"
             
             # 💰 fetch_position_info logic (New Feature)
@@ -607,7 +694,7 @@ class MultiAgentTradingBot:
                 
                 # 处理并保存指标 (Process indicators)
                 # Use stable (closed) klines for indicators to avoid look-ahead from live candle
-                stable_klines = raw_klines[:-1] if raw_klines else []
+                stable_klines = self._get_closed_klines(raw_klines)
                 df_with_indicators = self.processor.process_klines(
                     stable_klines,
                     self.current_symbol,
@@ -632,6 +719,54 @@ class MultiAgentTradingBot:
             # LOG 1: Oracle
             global_state.add_log(f"[🕵️ ORACLE] Data ready: ${current_price:,.2f}")
             global_state.current_price[self.current_symbol] = current_price
+
+            # Warmup / data validity gate (avoid decisions on unstable indicators)
+            data_readiness = self._assess_data_readiness(processed_dfs)
+            if not data_readiness['is_ready']:
+                reason = data_readiness.get('blocking_reason') or "data_warmup"
+                log.warning(f"[{self.current_symbol}] {reason}")
+                global_state.add_log(f"[DATA] {reason}")
+                global_state.oracle_status = "Warmup"
+                global_state.guardian_status = "Warmup"
+                global_state.four_layer_result = {
+                    'layer1_pass': False,
+                    'layer2_pass': False,
+                    'layer3_pass': False,
+                    'layer4_pass': False,
+                    'final_action': 'wait',
+                    'blocking_reason': reason,
+                    'data_ready': False,
+                    'data_validity': data_readiness['details']
+                }
+
+                decision_dict = {
+                    'action': 'wait',
+                    'confidence': 0,
+                    'reason': reason,
+                    'vote_details': {
+                        'data_validity': data_readiness['details']
+                    },
+                    'symbol': self.current_symbol,
+                    'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    'cycle_number': global_state.cycle_counter,
+                    'cycle_id': global_state.current_cycle_id,
+                    'risk_level': 'safe',
+                    'guardian_passed': True
+                }
+                decision_dict['vote_analysis'] = SemanticConverter.convert_analysis_map(decision_dict.get('vote_details', {}))
+                decision_dict['four_layer_status'] = global_state.four_layer_result
+
+                global_state.update_decision(decision_dict)
+                self.saver.save_decision(decision_dict, self.current_symbol, snapshot_id, cycle_id=cycle_id)
+
+                return {
+                    'status': 'wait',
+                    'action': 'wait',
+                    'details': {
+                        'reason': reason,
+                        'confidence': 0
+                    }
+                }
             
             # Step 2: Strategist
             print("[Step 2/4] 👨‍🔬 The Strategist (QuantAnalyst) - Analyzing data...")
@@ -2528,6 +2663,7 @@ def main():
     parser.add_argument('--leverage', type=int, default=1, help='杠杆倍数')
     parser.add_argument('--stop-loss', type=float, default=1.0, help='止损百分比')
     parser.add_argument('--take-profit', type=float, default=2.0, help='止盈百分比')
+    parser.add_argument('--kline-limit', type=int, default=300, help='K线拉取数量 (用于 warmup 测试)')
     parser.add_argument('--mode', choices=['once', 'continuous'], default='continuous', help='运行模式')
     parser.add_argument('--interval', type=float, default=3.0, help='持续运行间隔（分钟）')
     
@@ -2577,7 +2713,8 @@ def main():
         leverage=args.leverage,
         stop_loss_pct=args.stop_loss,
         take_profit_pct=args.take_profit,
-        test_mode=args.test
+        test_mode=args.test,
+        kline_limit=args.kline_limit
     )
     
     # 🔝 AUTO2 STARTUP EXECUTION (MANDATORY - runs before trading starts)
@@ -2594,6 +2731,12 @@ def main():
         bot.symbols = top2
         bot.current_symbol = top2[0] if top2 else 'FETUSDT'
         global_state.symbols = top2
+
+        # Ensure PredictAgent exists for AUTO2 symbols
+        for symbol in bot.symbols:
+            if symbol not in bot.predict_agents:
+                bot.predict_agents[symbol] = PredictAgent(horizon='30m', symbol=symbol)
+                log.info(f"🆕 Initialized PredictAgent for {symbol} (AUTO2)")
         
         # Start auto-refresh thread (12h interval)
         selector = get_selector()

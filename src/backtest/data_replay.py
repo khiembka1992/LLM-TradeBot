@@ -524,7 +524,8 @@ class DataReplayAgent:
             alignment_ok=self._check_alignment(df_5m, df_15m, df_1h),
             fetch_duration=0.0,
             binance_funding=funding_snapshot,
-            binance_oi={}
+            binance_oi={},
+            symbol=self.symbol
         )
         
         self.latest_snapshot = snapshot

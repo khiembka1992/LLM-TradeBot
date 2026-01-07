@@ -47,6 +47,8 @@ class PositionInfo:
     entry_price: float
     quantity: float
     unrealized_pnl: float
+    current_price: Optional[float] = None
+    unrealized_pnl_pct: Optional[float] = None
 
 
 class RiskAuditAgent:
@@ -138,8 +140,8 @@ class RiskAuditAgent:
         is_long = action_lower in ['long', 'open_long']
         is_short = action_lower in ['short', 'open_short']
         
-        # 0. 如果是hold，直接通过
-        if action == 'hold':
+        # 0. 如果是hold/wait，直接通过
+        if action_lower in ['hold', 'wait']:
             return RiskCheckResult(
                 passed=True,
                 risk_level=RiskLevel.SAFE,
@@ -217,10 +219,6 @@ class RiskAuditAgent:
             if is_short and confidence < 80:
                 return self._block_decision('total_blocks', "FETUSDT做空需高信心(≥80%)")
         
-        # NEARUSDT: Keep strict ban (this one might have fundamental issues)
-        if symbol_upper == "NEARUSDT" and action_lower in ['long', 'short', 'open_long', 'open_short', 'add_position']:
-            return self._block_decision('total_blocks', "NEARUSDT策略收紧：禁止交易")
-
         # 🔧 OPTIMIZATION: Relax LINKUSDT/FILUSDT LONG requirements
         # Changed from 85% confidence requirement to 75%
         strict_long_symbols = {"FILUSDT", "LINKUSDT"}

@@ -149,10 +149,10 @@ class StrategyComposer:
                     result['blocking_reason'] = 'Insufficient 15m data'
                 else:
                     close_15m = df_15m['close'].iloc[-1]
-                    bb_middle = df_15m['bb_middle'].iloc[-1]
-                    bb_upper = df_15m['bb_upper'].iloc[-1]
-                    bb_lower = df_15m['bb_lower'].iloc[-1]
-                    kdj_j = df_15m['kdj_j'].iloc[-1]
+                    bb_middle = df_15m['bb_middle'].iloc[-1] if 'bb_middle' in df_15m.columns else close_15m
+                    bb_upper = df_15m['bb_upper'].iloc[-1] if 'bb_upper' in df_15m.columns else close_15m * 1.02
+                    bb_lower = df_15m['bb_lower'].iloc[-1] if 'bb_lower' in df_15m.columns else close_15m * 0.98
+                    kdj_j = df_15m['kdj_j'].iloc[-1] if 'kdj_j' in df_15m.columns else 50
                     
                     result['kdj_j'] = kdj_j
                     result['bb_position'] = 'upper' if close_15m > bb_upper else 'lower' if close_15m < bb_lower else 'middle'

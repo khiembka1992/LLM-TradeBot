@@ -467,15 +467,23 @@ class BacktestEngine:
     ):
         """执行交易决策"""
         action = decision.get('action', 'hold')
+        action_lower = action.lower() if isinstance(action, str) else 'hold'
         confidence = decision.get('confidence', 0.0)
         if isinstance(confidence, (int, float)) and 0 < confidence <= 1:
             confidence *= 100
+
+        if action_lower == 'wait':
+            decision['action'] = 'hold'
+            decision.setdefault('reason', 'wait')
+            action = 'hold'
         
         # 0. Global Safety Check: Minimum Confidence 50%
         # Filters out weak mechanical signals when LLM yields (0% confidence)
         if action in ['long', 'short', 'open_long', 'open_short', 'add_position'] and confidence < 50:
             log.warning(f"🚫 Confidence {confidence}% < 50% for {action}. Forcing WAIT.")
-            return {'action': 'wait', 'reason': 'low_confidence_filtering'}
+            decision['action'] = 'hold'
+            decision['reason'] = 'low_confidence_filtering'
+            return
         
         # NOTE: Volatile Regime Guard REMOVED - was too strict, blocking all trades
         # The LLM already provides this context in the reason field

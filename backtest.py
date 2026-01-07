@@ -214,7 +214,7 @@ async def main():
     last_pct = 0
     def progress_callback(data):
         nonlocal last_pct
-        pct = data['pct']
+        pct = data.get('progress', data.get('pct', 0))
         if int(pct) > last_pct:
             last_pct = int(pct)
             bar_len = 30

@@ -212,20 +212,24 @@ class DataSyncAgent:
         # log.oracle(f"✅ 数据获取完成，耗时: {fetch_duration:.2f}秒")
         
         # 拆分双视图
+        stable_5m, live_5m = self._split_klines(k5m)
+        stable_15m, live_15m = self._split_klines(k15m)
+        stable_1h, live_1h = self._split_klines(k1h)
+
         snapshot = MarketSnapshot(
             # 交易对标识
             symbol=symbol,  # 🔧 FIX: Propagate symbol through pipeline
             # 5m 数据
-            stable_5m=self._to_dataframe(k5m[:-1]),
-            live_5m=k5m[-1] if k5m else {},
+            stable_5m=stable_5m,
+            live_5m=live_5m,
             
             # 15m 数据
-            stable_15m=self._to_dataframe(k15m[:-1]),
-            live_15m=k15m[-1] if k15m else {},
+            stable_15m=stable_15m,
+            live_15m=live_15m,
             
             # 1h 数据
-            stable_1h=self._to_dataframe(k1h[:-1]),
-            live_1h=k1h[-1] if k1h else {},
+            stable_1h=stable_1h,
+            live_1h=live_1h,
             
             # 元数据
             timestamp=datetime.now(),
@@ -284,6 +288,30 @@ class DataSyncAgent:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         
         return df
+
+    def _split_klines(self, klines: List[Dict]) -> Tuple[pd.DataFrame, Dict]:
+        """
+        Split klines into stable (closed) DataFrame and live (latest) kline dict.
+        Uses is_closed when available; otherwise falls back to close_time vs now.
+        """
+        if not klines:
+            return pd.DataFrame(), {}
+
+        last = klines[-1]
+        is_closed = last.get('is_closed')
+        if is_closed is None:
+            close_time = last.get('close_time')
+            if close_time is not None:
+                try:
+                    now_ms = int(datetime.now().timestamp() * 1000)
+                    is_closed = int(close_time) <= now_ms
+                except (TypeError, ValueError):
+                    is_closed = False
+            else:
+                is_closed = False
+
+        stable_source = klines if is_closed else klines[:-1]
+        return self._to_dataframe(stable_source), last
     
     def _check_alignment(
         self,

@@ -73,7 +73,7 @@ class OvertradingGuard:
             self.consecutive_losses += 1
             if self.consecutive_losses >= self.CONSECUTIVE_LOSS_THRESHOLD:
                 self.cooldown_until_cycle = current_cycle + self.LOSS_STREAK_COOLDOWN
-                log(f"⚠️ 连续{self.consecutive_losses}次亏损，冷却至周期 {self.cooldown_until_cycle}")
+                log.warning(f"⚠️ 连续{self.consecutive_losses}次亏损，冷却至周期 {self.cooldown_until_cycle}")
         else:
             self.consecutive_losses = 0
     
@@ -315,7 +315,7 @@ class DecisionCoreAgent:
         if action in ['long', 'short', 'open_long', 'open_short']:
             # 检查过度交易
             if not overtrade_allowed:
-                log(f"🚫 过度交易防护: {overtrade_reason}")
+                log.warning(f"🚫 过度交易防护: {overtrade_reason}")
                 action = 'hold'
                 base_confidence = 0.1
                 alignment_reason = overtrade_reason
