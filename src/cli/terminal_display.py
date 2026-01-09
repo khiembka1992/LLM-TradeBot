@@ -152,8 +152,19 @@ class TerminalDisplay:
         else:
             print(f"  📊 Position: {side} | Entry: ${entry:,.2f} | PnL: ${pnl:+.2f}")
     
-    def print_account_summary(self, equity: float, available: float, pnl: float, initial: float = 0):
-        """Print account summary"""
+    def print_account_summary(self, equity: float, available: float, pnl: float, initial: float = 0,
+                               cycle: int = 0, positions: Dict = None, symbols: List[str] = None):
+        """Print account summary with key trading information
+        
+        Args:
+            equity: Total account equity
+            available: Available balance
+            pnl: Total PnL
+            initial: Initial balance for PnL calculation
+            cycle: Current cycle number
+            positions: Dict of current positions {symbol: {side, entry_price, quantity, unrealized_pnl}}
+            symbols: List of trading symbols
+        """
         pnl_pct = (pnl / initial * 100) if initial > 0 else 0
         pnl_color = "green" if pnl >= 0 else "red"
         
@@ -163,6 +174,16 @@ class TerminalDisplay:
             table.add_column("Metric", style="cyan")
             table.add_column("Value", justify="right")
             
+            # Cycle info
+            table.add_row("🔄 Cycle", str(cycle) if cycle > 0 else "-")
+            
+            # Trading symbols
+            if symbols:
+                table.add_row("📊 Symbols", ", ".join(symbols))
+            
+            table.add_row("", "")  # Separator
+            
+            # Account info
             table.add_row("💰 Total Equity", f"${equity:,.2f}")
             table.add_row("📊 Available", f"${available:,.2f}")
             
@@ -170,14 +191,50 @@ class TerminalDisplay:
             pnl_text.stylize("green" if pnl >= 0 else "red")
             table.add_row("📈 Total PnL", pnl_text)
             
+            # Position info
+            if positions:
+                table.add_row("", "")  # Separator
+                for symbol, pos in positions.items():
+                    side = pos.get('side', 'N/A')
+                    entry_price = pos.get('entry_price', 0)
+                    quantity = pos.get('quantity', 0)
+                    unrealized_pnl = pos.get('unrealized_pnl', 0)
+                    pnl_pct_pos = pos.get('pnl_pct', 0)
+                    position_value = entry_price * quantity
+                    
+                    side_icon = "🟢" if side == 'LONG' else "🔴"
+                    side_text = Text(f"{side_icon} {side}")
+                    side_text.stylize("green" if side == 'LONG' else "red")
+                    table.add_row(f"📍 {symbol}", side_text)
+                    table.add_row("   Entry", f"${entry_price:,.2f}")
+                    table.add_row("   Value", f"${position_value:,.2f}")
+                    
+                    pos_pnl_text = Text(f"${unrealized_pnl:+,.2f} ({pnl_pct_pos:+.1f}%)")
+                    pos_pnl_text.stylize("green" if unrealized_pnl >= 0 else "red")
+                    table.add_row("   PnL", pos_pnl_text)
+            else:
+                table.add_row("", "")  # Separator
+                table.add_row("📍 Positions", "[dim]None[/dim]")
+            
             self.console.print(Panel(table, title="Account Summary", border_style="cyan"))
         else:
             print()
-            print("┌─ Account Summary ─────────────┐")
-            print(f"│ 💰 Equity:    ${equity:>12,.2f} │")
-            print(f"│ 📊 Available: ${available:>12,.2f} │")
-            print(f"│ 📈 PnL:       ${pnl:>+12,.2f} │")
-            print("└───────────────────────────────┘")
+            print("┌─ Account Summary ─────────────────────┐")
+            if cycle > 0:
+                print(f"│ 🔄 Cycle:     #{cycle:<24} │")
+            if symbols:
+                print(f"│ 📊 Symbols:   {', '.join(symbols):<24} │")
+            print(f"│ 💰 Equity:    ${equity:>20,.2f} │")
+            print(f"│ 📊 Available: ${available:>20,.2f} │")
+            print(f"│ 📈 PnL:       ${pnl:>+20,.2f} │")
+            if positions:
+                for symbol, pos in positions.items():
+                    side = pos.get('side', 'N/A')
+                    position_value = pos.get('entry_price', 0) * pos.get('quantity', 0)
+                    print(f"│ 📍 {symbol}: {side} ${position_value:>12,.2f} │")
+            else:
+                print(f"│ 📍 Positions: {'None':<22} │")
+            print("└───────────────────────────────────────┘")
     
     def print_trade_executed(self, trade: Dict):
         """Print trade execution notification"""

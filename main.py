@@ -2607,11 +2607,16 @@ class MultiAgentTradingBot:
                 # 🖥️ Headless Mode: Print account summary after each cycle
                 if self._headless_mode:
                     acc = global_state.account_overview
+                    # Get current positions
+                    positions = global_state.virtual_positions if self.test_mode else {}
                     self._terminal_display.print_account_summary(
                         equity=acc['total_equity'],
                         available=acc['available_balance'],
                         pnl=acc['total_pnl'],
-                        initial=global_state.initial_balance
+                        initial=global_state.initial_balance,
+                        cycle=global_state.cycle_counter,
+                        positions=positions,
+                        symbols=self.symbols
                     )
                 
                 # Dynamic Interval: specific to new requirement
