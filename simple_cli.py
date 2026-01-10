@@ -24,10 +24,25 @@ from datetime import datetime
 class SimpleTradingBot:
     """简化版交易机器人 - 只包含核心功能"""
     
-    def __init__(self, symbols=['BTCUSDT'], test_mode=True):
+    def __init__(self, symbols=None, test_mode=True):
         print("="*60)
         print("🤖 Simple Trading Bot - Minimal CLI Mode")
         print("="*60)
+        
+        # 从 .env 读取默认币种配置
+        if symbols is None:
+            env_symbols = os.environ.get('TRADING_SYMBOLS', 'BTCUSDT').strip()
+            symbols = [s.strip() for s in env_symbols.split(',') if s.strip()]
+        
+        # 检查是否使用 AUTO3 模式
+        self.use_auto3 = 'AUTO3' in symbols
+        if self.use_auto3:
+            symbols.remove('AUTO3')
+            print("\n🔝 AUTO3 mode detected - Will select best symbols via backtest...")
+        
+        # 如果没有符号或只有 AUTO3，使用默认值
+        if not symbols:
+            symbols = ['BTCUSDT']
         
         self.symbols = symbols
         self.current_symbol = symbols[0]
@@ -59,6 +74,42 @@ class SimpleTradingBot:
         print(f"📊 Trading: {', '.join(self.symbols)}")
         print(f"🧪 Test Mode: {test_mode}")
         print("="*60)
+        
+        # AUTO3 初始化：选择最佳币种
+        if self.use_auto3:
+            self._init_auto3()
+    
+    def _init_auto3(self):
+        """初始化 AUTO3 - 选择最佳交易币种"""
+        print("\n" + "="*60)
+        print("🔝 AUTO3 STARTUP - Selecting best trading symbols...")
+        print("="*60)
+        
+        try:
+            from src.agents.symbol_selector_agent import get_selector
+            selector = get_selector()
+            
+            # 运行异步选择
+            loop = asyncio.get_event_loop()
+            top_symbols = loop.run_until_complete(selector.select_top2(force_refresh=False))
+            
+            if top_symbols:
+                self.symbols = top_symbols
+                self.current_symbol = top_symbols[0]
+                print(f"\n✅ AUTO3 selected: {', '.join(top_symbols)}")
+            else:
+                print("\n⚠️ AUTO3 failed to select symbols, using defaults")
+                self.symbols = ['BTCUSDT', 'ETHUSDT']
+                self.current_symbol = 'BTCUSDT'
+                
+            print("="*60)
+            
+        except Exception as e:
+            log.error(f"AUTO3 initialization failed: {e}")
+            print(f"\n⚠️ AUTO3 error: {e}")
+            print("Using default symbols: BTCUSDT, ETHUSDT")
+            self.symbols = ['BTCUSDT', 'ETHUSDT']
+            self.current_symbol = 'BTCUSDT'
     
     async def run_once(self):
         """执行一次交易循环"""
@@ -218,8 +269,8 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description='Simple Trading Bot CLI')
-    parser.add_argument('--symbols', type=str, default='BTCUSDT', 
-                       help='Trading symbols (comma-separated)')
+    parser.add_argument('--symbols', type=str, default=None, 
+                       help='Trading symbols (comma-separated), default: read from .env')
     parser.add_argument('--mode', choices=['once', 'continuous'], default='once',
                        help='Run mode')
     parser.add_argument('--interval', type=float, default=3.0,
@@ -229,7 +280,11 @@ def main():
     
     args = parser.parse_args()
     
-    symbols = [s.strip() for s in args.symbols.split(',')]
+    # 处理符号：命令行参数优先，否则使用 None 让 Bot 从 .env 读取
+    symbols = None
+    if args.symbols:
+        symbols = [s.strip() for s in args.symbols.split(',')]
+    
     test_mode = not args.live
     
     bot = SimpleTradingBot(symbols=symbols, test_mode=test_mode)
@@ -243,3 +298,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
