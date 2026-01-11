@@ -20,6 +20,7 @@ from dataclasses import asdict
 from src.agents.data_sync_agent import MarketSnapshot
 from src.utils.logger import log
 from src.agents.regime_detector import RegimeDetector
+import numpy as np
 
 
 class QuantAnalystAgent:
@@ -28,12 +29,18 @@ class QuantAnalystAgent:
     
     提供情绪分析和OI燃料验证
     技术指标分析现在直接在main.py中使用真实1h/15m/5m数据
+    
+    New Capabilities (2026-01-11):
+    - Trap Detection (Rapid Rise Slow Fall)
+    - Dead Cat Bounce Detection (Weak Rebound)
+    - Divergence Detection (High Price Low Volume)
+    - Accumulation Detection (Bottom Stability)
     """
     
     def __init__(self):
         """初始化量化策略师"""
         self.regime_detector = RegimeDetector()
-        log.info("👨‍🔬 The Strategist (QuantAnalyst Agent) initialized - Full Analysis Mode")
+        log.info("👨‍🔬 The Strategist (QuantAnalyst Agent) initialized - Full Analysis Mode + Pattern Recognition")
         
     @staticmethod
     def calculate_ema(series: pd.Series, span: int) -> pd.Series:
@@ -127,6 +134,118 @@ class QuantAnalystAgent:
              
         return {'score': score, 'signal': 'long' if score > 0 else 'short', 'details': details}
 
+    def analyze_market_traps(self, df: pd.DataFrame) -> Dict:
+        """
+        识别市场陷阱和特殊形态 (User Experience Logic)
+        
+        Args:
+            df: 1h timeframe DataFrame
+            
+        Returns:
+            Dict containing trap flags and details
+        """
+        if df is None or len(df) < 50:
+            return {'details': {}}
+            
+        close = df['close']
+        high = df['high']
+        low = df['low']
+        volume = df['volume']
+        
+        # 结果字典
+        traps = {
+            'bull_trap_risk': False,      # 诱多风险 (急速上涨后缓跌)
+            'bear_trap_risk': False,      # 诱空风险 (急速下跌后缓涨 - 虽然少见但对称)
+            'weak_rebound': False,        # 弱反弹 (暴跌后无量反弹 - 别幻想抄底)
+            'volume_divergence': False,   # 量价背离 (高位缩量 - 庄家出货)
+            'accumulation': False,        # 底部吸筹 (底部放量不跌)
+            'details': {}
+        }
+        
+        # 1. 检测 "涨得快跌得慢" (Rapid Rise, Slow Fall) -> 诱多/出货
+        # 逻辑：过去N根K线的上涨速度显著大于最近M根K线的下跌速度，且最近表现为阴跌
+        recent_window = 10
+        if len(close) > recent_window + 5:
+            # 计算近期斜率
+            # 简单起见，用 (Price_end - Price_start) / Bars
+            
+            # 寻找最近的一个显著高点
+            max_idx = close.iloc[-20:].idxmax()
+            
+            # 如果高点在比较近的位置（比如5-10根K线前），且之后是缓慢下跌
+            # 简单的形态学识别比较难，这里用波动率和涨跌幅特征
+            
+            # 特征：最近5根K线主要是阴线，但跌幅很小，而之前的5根K线有大阳线
+            recent_5_returns = close.pct_change().iloc[-5:]
+            prev_5_returns = close.pct_change().iloc[-10:-5]
+            
+            down_days = (recent_5_returns < 0).sum()
+            avg_drop = recent_5_returns[recent_5_returns < 0].mean() if down_days > 0 else 0
+            
+            max_rise = prev_5_returns.max()
+            
+            if down_days >= 3 and abs(avg_drop) < 0.005 and max_rise > 0.02:
+                # 最近常跌但跌幅小，之前有大涨
+                traps['bull_trap_risk'] = True
+                traps['details']['pattern'] = "rapid_rise_slow_fall"
+        
+        # 2. 检测 "弱反弹" (Weak Rebound after Crash)
+        # 逻辑：前期有暴跌，随后反弹幅度小且成交量低
+        crash_threshold = -0.05 # 5% drop
+        if len(close) > 20:
+            # 检查主要下跌段
+            rolling_min = close.rolling(12).min()
+            rolling_max = close.rolling(12).max()
+            drop_pct = (rolling_min.iloc[-5] - rolling_max.iloc[-15]) / rolling_max.iloc[-15]
+            
+            if drop_pct < crash_threshold:
+                # 刚刚经历过暴跌
+                # 检查反弹力度
+                curr_price = close.iloc[-1]
+                bounce_pct = (curr_price - rolling_min.iloc[-5]) / rolling_min.iloc[-5]
+                
+                # 检查成交量
+                avg_vol = volume.iloc[-20:].mean()
+                curr_vol_avg = volume.iloc[-3:].mean()
+                
+                if bounce_pct < 0.02 and curr_vol_avg < avg_vol * 0.8:
+                    traps['weak_rebound'] = True
+                    traps['details']['pattern'] = "weak_rebound_low_vol"
+
+        # 3. 检测 "高位无量" (High Price, Low Volume - Divergence)
+        # 逻辑：价格创新高，但成交量未能确认
+        if len(close) > 20:
+            current_price = close.iloc[-1]
+            recent_high = high.iloc[-20:].max()
+            
+            if current_price >= recent_high * 0.98: # 接近高位
+                avg_vol_long = volume.iloc[-50:-10].mean()
+                avg_vol_short = volume.iloc[-5:].mean()
+                
+                if avg_vol_short < avg_vol_long * 0.7:
+                     traps['volume_divergence'] = True
+                     traps['details']['div'] = "high_price_low_vol"
+        
+        # 4. 检测 "底部放量不跌" (Accumulation)
+        # 逻辑：价格在低位横盘，但成交量持续放大 (Indicates smart money buying)
+        if len(close) > 20:
+            current_price = close.iloc[-1]
+            recent_low = low.iloc[-30:].min()
+            
+            if current_price <= recent_low * 1.05: # 接近低位
+                # 价格波动率低
+                volatility = close.iloc[-10:].std() / close.iloc[-10:].mean()
+                
+                # 成交量放大
+                avg_vol_long = volume.iloc[-50:-10].mean()
+                avg_vol_short = volume.iloc[-5:].mean()
+                
+                if volatility < 0.005 and avg_vol_short > avg_vol_long * 1.2:
+                    traps['accumulation'] = True
+                    traps['details']['pattern'] = "bottom_accumulation"
+
+        return traps
+
     async def analyze_all_timeframes(self, snapshot: MarketSnapshot) -> Dict:
         """
         执行完整技术分析
@@ -158,11 +277,15 @@ class QuantAnalystAgent:
         # 6. 市场体制检测 (Using 1h for backbone regime)
         regime = self.regime_detector.detect_regime(snapshot.stable_1h) if snapshot.stable_1h is not None else {}
         
+        # 7. 陷阱与形态检测 (User Logic Integration)
+        traps = self.analyze_market_traps(snapshot.stable_1h)
+        
         result = {
             'symbol': snapshot.symbol,  # 🔧 FIX: Include symbol for DecisionCoreAgent's OvertradingGuard
             'sentiment': sentiment,
             'volatility': volatility,
             'regime': regime,
+            'traps': traps,  # New Field
             # 保留空的占位符以兼容
             'timeframe_6h': {}, 
             'timeframe_2h': {},

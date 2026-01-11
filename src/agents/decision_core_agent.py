@@ -155,6 +155,7 @@ class VoteResult:
     regime: Optional[Dict] = None      # 市场状态信息
     position: Optional[Dict] = None    # 价格位置信息
     trade_params: Optional[Dict] = None # 动态交易参数 (stop_loss, take_profit, leverage, etc.)
+    traps: Optional[Dict] = None # 市场陷阱信息 (User Experience Logic)
 
 
 class DecisionCoreAgent:
@@ -225,6 +226,7 @@ class DecisionCoreAgent:
         trend_data = quant_analysis.get('trend', {})
         osc_data = quant_analysis.get('oscillator', {})
         sentiment_data = quant_analysis.get('sentiment', {})
+        traps = quant_analysis.get('traps', {})
         
         scores = {
             'trend_5m': trend_data.get('trend_5m_score', 0),
@@ -348,6 +350,39 @@ class DecisionCoreAgent:
                 base_confidence = 0.1
                 alignment_reason = overtrade_reason
         
+        # ========== 市场陷阱与形态过滤 (User Experience Logic) ==========
+        if action in ['long', 'open_long', 'short', 'open_short']:
+            # 1. 诱多风险 (Rapid Rise, Slow Fall)
+            if traps.get('bull_trap_risk') and action in ['long', 'open_long']:
+                log.warning(f"🚫 诱多风险拦截: 急涨缓跌形态 detected")
+                action = 'hold'
+                base_confidence = 0.1
+                alignment_reason = "诱多风险(急涨缓跌)，禁止追高"
+            
+            # 2. 弱反弹 (Weak Rebound)
+            if traps.get('weak_rebound') and action in ['long', 'open_long']:
+                # 弱反弹不一定完全禁止，但大幅降低信心
+                base_confidence *= 0.5
+                alignment_reason += " | 弱反弹警示(缩量反弹)"
+                if base_confidence < 0.6: # 如果信心降得太低，直接转hold
+                     action = 'hold'
+                     alignment_reason = "弱反弹(缩量)信心不足，放弃做多"
+
+            # 3. 量价背离 (High Price, Low Volume)
+            if traps.get('volume_divergence'):
+                if action in ['long', 'open_long']:
+                    base_confidence *= 0.7
+                    alignment_reason += " | 量价背离警示(高位缩量)"
+                elif action in ['short', 'open_short']:
+                    base_confidence = min(base_confidence * 1.2, 0.95) # 稍微增加做空信心
+                    alignment_reason += " | 量价背离确认(高位缩量)"
+            
+            # 4. 底部吸筹 (Accumulation)
+            if traps.get('accumulation'):
+                 if action in ['long', 'open_long']:
+                     base_confidence = min(base_confidence * 1.2, 0.95)
+                     alignment_reason += " | 底部吸筹确认(放量不跌)"
+        
         # 8. 综合信心度校准与对抗审计
         final_confidence = base_confidence * 100
         
@@ -439,7 +474,8 @@ class DecisionCoreAgent:
             reason=reason,
             regime=regime,
             position=position,
-            trade_params=trade_params
+            trade_params=trade_params,
+            traps=traps
         )
         
         # 12. 记录历史

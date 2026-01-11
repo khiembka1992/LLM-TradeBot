@@ -401,6 +401,17 @@ class RiskAuditAgent:
         
         if not risk_check['passed']:
             warnings.append(f"⚠️ {risk_check['reason']}")
+
+        # 6.5 【陷阱审计】用户经验风控 (Trap & Pattern)
+        trap_check = self._check_market_traps_risk(decision)
+        if not trap_check['passed']:
+            # 陷阱检测可能会直接拦截（如诱多风险）
+             return self._block_decision(
+                'total_blocks',
+                trap_check['reason']
+            )
+        if trap_check.get('warnings'):
+            warnings.extend(trap_check['warnings'])
         
         # 7. 综合评估风险等级
         risk_level = self._evaluate_risk_level(
@@ -677,6 +688,52 @@ class RiskAuditAgent:
         
         return {'passed': True}
     
+    def _check_market_traps_risk(self, decision: Dict) -> Dict:
+        """
+        检查市场陷阱风险 (User Experience Logic)
+        
+        基于用户的10年经验：
+        1. 涨得快跌得慢 -> 诱多，拦截做多
+        2. 暴跌后弱反弹 -> 诱多，拦截做多
+        3. 高位无量 -> 诱多，拦截做多
+        """
+        traps = decision.get('traps') or {}
+        action = decision.get('action', 'hold')
+        
+        if action not in ['long', 'open_long']:
+            return {'passed': True}
+            
+        # 1. 诱多风险 (Rapid Rise, Slow Fall)
+        if traps.get('bull_trap_risk'):
+            return {
+                'passed': False,
+                'reason': "【用户经验风控】识别到'急涨缓跌'诱多形态，禁止做多"
+            }
+            
+        # 2. 弱反弹 (Weak Rebound)
+        if traps.get('weak_rebound'):
+            # 弱反弹不一定全拦，但如果是高杠杆或者低信心，则拦截
+            confidence = decision.get('confidence', 0)
+            if confidence < 75:
+                return {
+                    'passed': False,
+                    'reason': f"【用户经验风控】弱反弹(缩量)信心不足({confidence:.1f})，禁止做多"
+                }
+            return { # 只是警告
+                'passed': True,
+                'warnings': ["⚠️ 弱反弹警示：暴跌后无量反弹，谨防假突破"]
+            }
+            
+        # 3. 高位无量 (Volume Divergence)
+        if traps.get('volume_divergence'):
+            # 高位无量非常危险
+            return {
+                'passed': False,
+                'reason': "【用户经验风控】高位缩量(量价背离)，庄家可能出货，禁止做多"
+            }
+            
+        return {'passed': True}
+
     def _evaluate_risk_level(
         self,
         warning_count: int,
