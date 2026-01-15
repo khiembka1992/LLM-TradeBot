@@ -97,7 +97,7 @@ class SimpleTradingBot:
             
             # 运行异步选择
             loop = asyncio.get_event_loop()
-            top_symbols = loop.run_until_complete(selector.select_top2(force_refresh=False))
+            top_symbols = loop.run_until_complete(selector.select_top3(force_refresh=False))
             
             if top_symbols:
                 self.symbols = top_symbols

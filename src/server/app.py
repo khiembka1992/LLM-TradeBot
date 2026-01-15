@@ -1061,6 +1061,23 @@ async def protect_backtest_page(request: Request, call_next):
     response = await call_next(request)
     return response
 
+# Serve root-level static files (CSS, JS) directly
+@app.get("/style.css")
+async def serve_style_css():
+    return FileResponse(os.path.join(WEB_DIR, 'style.css'), media_type='text/css')
+
+@app.get("/style-enhancements.css")
+async def serve_style_enhancements_css():
+    return FileResponse(os.path.join(WEB_DIR, 'style-enhancements.css'), media_type='text/css')
+
+@app.get("/app.js")
+async def serve_app_js():
+    return FileResponse(os.path.join(WEB_DIR, 'app.js'), media_type='application/javascript')
+
+@app.get("/i18n.js")
+async def serve_i18n_js():
+    return FileResponse(os.path.join(WEB_DIR, 'i18n.js'), media_type='application/javascript')
+
 # Serve Static Files
 app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
 

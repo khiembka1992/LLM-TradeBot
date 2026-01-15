@@ -225,6 +225,11 @@ function updateDashboard() {
             renderDecision(data.decision);
             renderLogs(data.logs, data.logs_simplified);
 
+            // 🆕 Update Agent Framework Visualization
+            if (data.system && data.decision) {
+                updateAgentFramework(data.system, data.decision, data.agents);
+            }
+
             // 🆕 Update K-Line symbol selector with active trading symbols
             if (data.system && data.system.symbols) {
                 updateSymbolSelector(data.system.symbols);
@@ -862,6 +867,128 @@ function renderDecision(decision) {
     // But we might want to highlight latest row if needed.
     // For now, do nothing or update if we kept the card.
     // Since we removed #decision-box from HTML, this function can share empty logic or be removed.
+}
+
+// 🆕 Update Agent Framework Visualization
+function updateAgentFramework(system, decision, agents) {
+    // Update Cycle Number
+    const cycleEl = document.getElementById('framework-cycle');
+    if (cycleEl && system.cycle_counter !== undefined) {
+        cycleEl.textContent = `Cycle #${system.cycle_counter}`;
+    }
+
+    // Update Symbol Selector (already handled by updateSymbolSelector)
+
+    // Update Agent Statuses and Outputs based on decision data
+    if (!decision) return;
+
+    // Helper to set agent badge status
+    const setAgentStatus = (agentId, status) => {
+        const badge = document.querySelector(`#${agentId} .agent-badge`);
+        if (badge) {
+            badge.textContent = status;
+            badge.className = 'agent-badge';
+            if (status === 'Running') badge.classList.add('running');
+            else if (status === 'Done') badge.classList.add('completed');
+            else badge.classList.add('idle');
+        }
+    };
+
+    // Helper to set output value
+    const setOutput = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value || '--';
+    };
+
+    // DataSync Agent - Always show as completed when we have data
+    if (system.mode === 'Running') {
+        setAgentStatus('flow-datasync', 'Done');
+        // Update data outputs if available
+        setOutput('out-5m', '✓');
+        setOutput('out-15m', '✓');
+        setOutput('out-1h', '✓');
+        setOutput('out-oi', '✓');
+    }
+
+    // Quant Analyst - Show indicators from decision
+    if (decision.vote_details) {
+        setAgentStatus('flow-quant', 'Done');
+        // These would come from backend if available
+        setOutput('out-ema', '--');
+        setOutput('out-rsi', '--');
+        setOutput('out-macd', '--');
+        setOutput('out-bb', '--');
+    }
+
+    // Regime Detector
+    if (decision.regime) {
+        setAgentStatus('flow-regime', 'Done');
+        const regime = decision.regime.regime || 'Unknown';
+        const adx = decision.regime.adx !== undefined ? decision.regime.adx.toFixed(1) : '--';
+        setOutput('out-regime', regime);
+        setOutput('out-adx', adx);
+        setOutput('out-regime-conf', '--');
+    }
+
+    // Predict Agent
+    if (decision.prophet_probability !== undefined) {
+        setAgentStatus('flow-predict', 'Done');
+        const pUp = (decision.prophet_probability * 100).toFixed(0);
+        const pDown = ((1 - decision.prophet_probability) * 100).toFixed(0);
+        setOutput('out-pup', `${pUp}%`);
+        setOutput('out-pdown', `${pDown}%`);
+        const signal = decision.prophet_probability > 0.55 ? 'LONG' :
+            (decision.prophet_probability < 0.45 ? 'SHORT' : 'NEUTRAL');
+        setOutput('out-signal', signal);
+    }
+
+    // Decision Core
+    if (decision.action) {
+        setAgentStatus('flow-decision', 'Done');
+        const action = decision.action.toUpperCase();
+        const conf = decision.confidence ? `${(decision.confidence * 100).toFixed(0)}%` : '0%';
+
+        const decisionEl = document.getElementById('out-decision');
+        if (decisionEl) {
+            const actionSpan = decisionEl.querySelector('.decision-action');
+            const confSpan = decisionEl.querySelector('.decision-conf');
+            if (actionSpan) actionSpan.textContent = action;
+            if (confSpan) confSpan.textContent = conf;
+        }
+
+        // Bull/Bear votes
+        if (decision.vote_details) {
+            const bullConf = decision.vote_details.bull_confidence;
+            const bearConf = decision.vote_details.bear_confidence;
+            const bullStance = decision.vote_details.bull_stance || '';
+            const bearStance = decision.vote_details.bear_stance || '';
+
+            setOutput('out-bull', bullConf !== undefined ? `${bullConf}% ${bullStance}` : '--');
+            setOutput('out-bear', bearConf !== undefined ? `${bearConf}% ${bearStance}` : '--');
+        }
+    }
+
+    // Risk Audit
+    if (decision.guardian_passed !== undefined) {
+        setAgentStatus('flow-risk', 'Done');
+        const riskLevel = decision.risk_level || 'unknown';
+        setOutput('out-risk', riskLevel.toUpperCase());
+        setOutput('out-size', '--');
+        setOutput('out-sl', '--');
+        setOutput('out-tp', '--');
+    }
+
+    // Final Output
+    const finalEl = document.getElementById('out-final');
+    if (finalEl && decision.action) {
+        const actionDiv = finalEl.querySelector('.final-action');
+        const symbolSpan = document.getElementById('final-symbol');
+        const sizeSpan = document.getElementById('final-size');
+
+        if (actionDiv) actionDiv.textContent = decision.action.toUpperCase();
+        if (symbolSpan) symbolSpan.textContent = decision.symbol || '--';
+        if (sizeSpan) sizeSpan.textContent = '--';
+    }
 }
 
 // 🆕 Update K-Line Symbol Selector dynamically

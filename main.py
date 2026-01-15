@@ -476,7 +476,7 @@ class MultiAgentTradingBot:
         Gets AI500 Top 5 by volume, backtests each, and selects top 2
         """
         selector = get_selector()
-        top2 = await selector.select_top2(force_refresh=False)
+        top2 = await selector.select_top3(force_refresh=False)
         
         log.info(f"🔝 AUTO3 resolved to: {', '.join(top2)}")
         return top2
