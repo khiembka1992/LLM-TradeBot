@@ -296,6 +296,10 @@ function updateDashboard() {
                 if (symbolDisplayText) {
                     symbolDisplayText.textContent = headerSymbol;
                 }
+                if (typeof loadTradingViewChart === 'function' && headerSymbol !== window.lastChartSymbol) {
+                    window.lastChartSymbol = headerSymbol;
+                    loadTradingViewChart(headerSymbol);
+                }
             }
 
             // New Renderers
@@ -1491,12 +1495,12 @@ function updateAgentFramework(system, decision, agents) {
         setSummary('sum-symbol-selector', `${selectorMode} -> ${selectorSymbol}.`);
 
         // 🆕 Update K-line chart when AUTO1 symbol changes
-        if (selectorSymbol !== '--' && selectorSymbol !== window.lastChartSymbol) {
+        if (selectorSymbol !== '--'
+            && selectorSymbol !== window.lastChartSymbol
+            && typeof loadTradingViewChart === 'function') {
             window.lastChartSymbol = selectorSymbol;
-            if (typeof loadTradingViewChart === 'function') {
-                loadTradingViewChart(selectorSymbol);
-                console.log('📈 K-line chart updated to:', selectorSymbol);
-            }
+            loadTradingViewChart(selectorSymbol);
+            console.log('📈 K-line chart updated to:', selectorSymbol);
         }
 
         // 🆕 Update current symbol display in framework header

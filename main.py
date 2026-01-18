@@ -2946,6 +2946,7 @@ class MultiAgentTradingBot:
                             self.symbols = top_symbols
                             self.current_symbol = top_symbols[0]
                             global_state.symbols = top_symbols
+                            global_state.current_symbol = self.current_symbol
 
                             if self.agent_config.predict_agent:
                                 for symbol in top_symbols:
