@@ -86,4 +86,4 @@ agents:
   reflection_agent_local: true     # 本地规则反思
   
   # 选币
-  symbol_selector_agent: false     # AUTO3 自动选币 (需要回测)
+  symbol_selector_agent: true      # AUTO1/AUTO3 自动选币

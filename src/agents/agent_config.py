@@ -49,7 +49,7 @@ class AgentConfig:
     reflection_agent_local: bool = True      # ReflectionAgent: Rule-based reflection
     
     # Symbol Selection
-    symbol_selector_agent: bool = False      # SymbolSelectorAgent: AUTO3 selection
+    symbol_selector_agent: bool = True       # SymbolSelectorAgent: AUTO3/AUTO1 selection
     
     def __post_init__(self):
         """Validate dependencies between agents"""
@@ -114,7 +114,7 @@ class AgentConfig:
             trigger_agent_local=resolve_flag('trigger_agent_local', True),
             reflection_agent_llm=resolve_llm_flag('reflection_agent_llm', 'reflection_agent', False),
             reflection_agent_local=resolve_flag('reflection_agent_local', True),
-            symbol_selector_agent=resolve_flag('symbol_selector_agent', False),
+            symbol_selector_agent=resolve_flag('symbol_selector_agent', True),
         )
     
     def is_enabled(self, agent_name: str) -> bool:

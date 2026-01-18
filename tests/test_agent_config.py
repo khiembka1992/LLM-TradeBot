@@ -24,6 +24,7 @@ class TestAgentConfigDefaults:
         assert config.reflection_agent_llm is False
         assert config.reflection_agent_local is True
         assert config.trigger_detector_agent is True
+        assert config.symbol_selector_agent is True
         
     def test_default_disabled_agents(self):
         """Test that correct agents are disabled by default"""
@@ -37,7 +38,6 @@ class TestAgentConfigDefaults:
         assert config.setup_agent_local is True
         assert config.trigger_agent_local is True
         assert config.position_analyzer_agent is False
-        assert config.symbol_selector_agent is False
 
 
 class TestAgentConfigFromDict:
