@@ -217,6 +217,7 @@ class MultiAgentTradingBot:
         # Symbol selector cadence (AUTO1/AUTO3)
         self.selector_interval_sec = 10 * 60
         self.selector_last_run = 0.0
+        self.selector_startup_done = False
         
         # 交易参数
         self.max_position_size = max_position_size
@@ -396,6 +397,10 @@ class MultiAgentTradingBot:
         if not self.agent_config.symbol_selector_agent:
             return
 
+        now_ts = time.time()
+        if reason != "startup" and self.selector_last_run > 0 and (now_ts - self.selector_last_run) < self.selector_interval_sec:
+            return
+
         active_symbols = self._get_active_position_symbols()
         if active_symbols:
             locked = [s for s in self.symbols if s in active_symbols]
@@ -403,10 +408,12 @@ class MultiAgentTradingBot:
                 locked = sorted(set(active_symbols))
             log.info(f"🔒 SymbolSelectorAgent skipped (active positions: {', '.join(locked)})")
             global_state.add_log(f"[🔒 SELECTOR] Skipped: active positions ({', '.join(locked)})")
-            self.selector_last_run = time.time()
+            self.selector_last_run = now_ts
+            if reason == "startup":
+                self.selector_startup_done = True
             return
 
-        selector_started = time.time()
+        selector_started = now_ts
         try:
             log.info(f"🎰 SymbolSelectorAgent ({reason}) running before analysis...")
             global_state.add_log(f"[🎰 SELECTOR] Symbol selection started ({reason})")
@@ -475,6 +482,8 @@ class MultiAgentTradingBot:
             global_state.add_log(f"[🎰 SELECTOR] Failed: {e}")
         finally:
             self.selector_last_run = selector_started
+            if reason == "startup":
+                self.selector_startup_done = True
 
     def _get_active_position_symbols(self) -> List[str]:
         """Return symbols with active positions (test + live)."""
@@ -3302,7 +3311,9 @@ class MultiAgentTradingBot:
                 has_lock = bool(locked_symbols)
 
                 # 🔝 Symbol Selector Agent: run once at startup, then every 10 minutes during wait
-                if not has_lock and self.selector_last_run == 0.0 and self.agent_config.symbol_selector_agent:
+                if (not has_lock
+                        and not self.selector_startup_done
+                        and self.agent_config.symbol_selector_agent):
                     self._run_symbol_selector(reason="startup")
 
                 symbols_for_cycle = locked_symbols if has_lock else self.symbols

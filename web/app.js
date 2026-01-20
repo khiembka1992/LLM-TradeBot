@@ -1516,6 +1516,7 @@ function updateAgentFramework(system, decision, agents) {
         const sizeSpan = document.getElementById('final-size');
         const params = decision.order_params || decision.params || decision.details || null;
         const qty = params ? params.quantity : null;
+        const isBlocked = decision.guardian_passed === false;
         let sizeLabel = '--';
         if (qty !== undefined && qty !== null && decision.symbol) {
             const base = decision.symbol.replace(/(USDT|BUSD|USDC)$/i, '');
@@ -1524,11 +1525,28 @@ function updateAgentFramework(system, decision, agents) {
             sizeLabel = formatNumber(qty, 4);
         }
 
-        if (actionDiv) actionDiv.textContent = decision.action.toUpperCase();
+        const actionLower = String(decision.action || '').toLowerCase();
+        const finalActionText = isBlocked ? 'BLOCKED' : decision.action.toUpperCase();
+        if (actionDiv) {
+            actionDiv.textContent = finalActionText;
+            actionDiv.className = 'final-action';
+            if (isBlocked) {
+                actionDiv.classList.add('blocked');
+            } else if (actionLower.includes('long')) {
+                actionDiv.classList.add('long');
+            } else if (actionLower.includes('short')) {
+                actionDiv.classList.add('short');
+            }
+        }
         if (symbolSpan) symbolSpan.textContent = decision.symbol || '--';
-        if (sizeSpan) sizeSpan.textContent = sizeLabel;
+        if (sizeSpan) sizeSpan.textContent = isBlocked ? '--' : sizeLabel;
         const symbolText = decision.symbol || '--';
-        setSummary('sum-output', `EXEC ${decision.action.toUpperCase()} ${symbolText} ${sizeLabel}.`);
+        if (isBlocked) {
+            const reason = decision.guardian_reason || 'blocked by risk audit';
+            setSummary('sum-output', `EXEC BLOCKED ${symbolText}. ${reason}.`);
+        } else {
+            setSummary('sum-output', `EXEC ${decision.action.toUpperCase()} ${symbolText} ${sizeLabel}.`);
+        }
     } else {
         setAgentStatus('flow-output', 'Idle');
         setSummary('sum-output', 'Output pending.');
