@@ -1552,8 +1552,10 @@ function updateAgentFramework(system, decision, agents) {
             setSummary('sum-decision', `DECISION ${action} ${conf}.`);
         }
     } else {
+        const lang = window.currentLang === 'zh' ? 'zh' : 'en';
+        const t = (key) => (window.i18n && window.i18n[lang] && window.i18n[lang][key]) || key;
         setAgentStatus('flow-decision', 'Idle');
-        setSummary('sum-decision', 'Decision pending.');
+        setSummary('sum-decision', t('summary.decision.pending'));
     }
 
     // Risk Audit
@@ -1643,16 +1645,27 @@ function updateAgentFramework(system, decision, agents) {
         }
         if (symbolSpan) symbolSpan.textContent = decision.symbol || '--';
         if (sizeSpan) sizeSpan.textContent = isBlocked ? '--' : sizeLabel;
+
+        // Get i18n helper
+        const lang = window.currentLang === 'zh' ? 'zh' : 'en';
+        const t = (key) => (window.i18n && window.i18n[lang] && window.i18n[lang][key]) || key;
+
         const symbolText = decision.symbol || '--';
         if (isBlocked) {
-            const reason = decision.guardian_reason || 'blocked by risk audit';
-            setSummary('sum-output', `EXEC BLOCKED ${symbolText}. ${reason}.`);
+            const reason = decision.guardian_reason || t('summary.blocked.reason');
+            setSummary('sum-output', `${t('summary.output.blocked')} ${symbolText}. ${reason}.`);
         } else {
-            setSummary('sum-output', `EXEC ${decision.action.toUpperCase()} ${symbolText} ${sizeLabel}.`);
+            const fmt = t('summary.output.format')
+                .replace('{action}', decision.action.toUpperCase())
+                .replace('{symbol}', symbolText)
+                .replace('{size}', sizeLabel);
+            setSummary('sum-output', fmt);
         }
     } else {
+        const lang = window.currentLang === 'zh' ? 'zh' : 'en';
+        const t = (key) => (window.i18n && window.i18n[lang] && window.i18n[lang][key]) || key;
         setAgentStatus('flow-output', 'Idle');
-        setSummary('sum-output', 'Output pending.');
+        setSummary('sum-output', t('summary.output.pending'));
     }
 
     // 🆕 Symbol Selector Agent
@@ -3447,10 +3460,11 @@ function renderTradeHistory(trades) {
         Object.entries(boxStates).forEach(([boxId, enabled]) => {
             const box = document.getElementById(boxId);
             if (box) {
-                box.classList.toggle('hidden', !enabled);
-                box.style.opacity = enabled ? '1' : '0';
-                box.style.filter = enabled ? 'none' : 'grayscale(100%)';
-                box.style.pointerEvents = enabled ? 'auto' : 'none';
+                // Keep cards visible but show disabled state (dimmed, not hidden)
+                box.classList.remove('hidden');
+                box.style.opacity = enabled ? '1' : '0.4';
+                box.style.filter = enabled ? 'none' : 'grayscale(80%)';
+                box.style.pointerEvents = 'auto';  // Always allow interaction
             }
         });
     }
