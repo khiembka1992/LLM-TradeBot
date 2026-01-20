@@ -350,6 +350,7 @@ function updateDashboard() {
                 renderAccount(activeAccount);
                 updatePositionInfo(activeAccount, activePositions);
             }
+            updateAccountTradeStats(data.trade_history || []);
 
             // Determine Initial Amount for Chart Baseline
             let initialAmount = null;
@@ -717,6 +718,37 @@ function renderAccount(account) {
         pnlPctElement.classList.remove('pos', 'neg', 'neutral');
         pnlPctElement.classList.add('neutral');
     }
+}
+
+function updateAccountTradeStats(trades) {
+    const tradesEl = document.getElementById('account-trades-count');
+    const winRateEl = document.getElementById('account-win-rate');
+
+    if (!tradesEl && !winRateEl) return;
+
+    const list = Array.isArray(trades) ? trades : [];
+    let total = 0;
+    let wins = 0;
+
+    for (const trade of list) {
+        if (!trade || typeof trade !== 'object') continue;
+        const status = String(trade.status || '').toUpperCase();
+        const action = String(trade.action || '').toUpperCase();
+        const exitPrice = Number(trade.exit_price ?? 0);
+        const isClosed = status.includes('CLOSED')
+            || (Number.isFinite(exitPrice) && exitPrice !== 0)
+            || action.includes('CLOSE');
+        if (!isClosed) continue;
+
+        const pnl = Number(trade.pnl);
+        if (!Number.isFinite(pnl)) continue;
+        total += 1;
+        if (pnl > 0) wins += 1;
+    }
+
+    const winRate = total > 0 ? (wins / total) * 100 : 0;
+    if (tradesEl) tradesEl.textContent = `${total}`;
+    if (winRateEl) winRateEl.textContent = `${winRate.toFixed(2)}%`;
 }
 
 function renderChart(history, initialAmount = null) {
