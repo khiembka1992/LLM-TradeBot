@@ -178,7 +178,7 @@
                     <div class="card-header framework-header">
                         <div class="framework-title-block">
                             <h2 class="framework-title">🤖 Multi-Agent Decision Framework</h2>
-                            <p class="framework-subtitle">Signal -> Audit -> Execute</p>
+                            <p class="framework-subtitle" data-i18n="framework.subtitle">Signal -> Audit -> Execute</p>
                         </div>
                         <div class="framework-controls">
                             <span id="framework-cycle" class="cycle-badge">Cycle #0</span>
@@ -199,22 +199,22 @@
                             <!-- Layer 1: Data Layer -->
                             <div class="flow-layer" data-layer="data">
                                 <div class="flow-layer-row">
-                                    <div class="layer-label">📡 Data Layer</div>
+                                    <div class="layer-label" data-i18n="framework.layer.data">📡 Data Layer</div>
                                     <div class="layer-agents">
                                     <div class="agent-box" id="flow-datasync">
                                         <div class="agent-header">
                                             <span class="agent-emoji">🕵️</span>
-                                            <span class="agent-title">DataSync Agent</span>
+                                            <span class="agent-title" data-i18n="agent.card.datasync">DataSync Agent</span>
                                             <span class="agent-badge idle">Idle</span>
                                         </div>
                                         <div class="agent-output">
-                                            <div class="output-row"><span class="output-label">5m:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.5m">5m:</span><span
                                                     class="output-value" id="out-5m">--</span></div>
-                                            <div class="output-row"><span class="output-label">15m:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.15m">15m:</span><span
                                                     class="output-value" id="out-15m">--</span></div>
-                                            <div class="output-row"><span class="output-label">1m:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.1m">1m:</span><span
                                                     class="output-value" id="out-1m">--</span></div>
-                                            <div class="output-row"><span class="output-label">OI:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.oi">OI:</span><span
                                                     class="output-value" id="out-oi">--</span></div>
                                         </div>
                                         <div class="agent-summary" id="sum-datasync">--</div>
@@ -222,17 +222,17 @@
                                     <div class="agent-box" id="flow-symbol-selector">
                                         <div class="agent-header">
                                             <span class="agent-emoji">🎰</span>
-                                            <span class="agent-title">Symbol Selector</span>
+                                            <span class="agent-title" data-i18n="agent.card.symbol_selector">Symbol Selector</span>
                                             <span class="agent-badge idle">Idle</span>
                                         </div>
                                         <div class="agent-output">
-                                            <div class="output-row"><span class="output-label">Mode:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.mode">Mode:</span><span
                                                     class="output-value" id="out-selector-mode">AUTO1</span></div>
-                                            <div class="output-row"><span class="output-label">Symbol:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.symbol">Symbol:</span><span
                                                     class="output-value" id="out-selector-symbol">--</span></div>
-                                            <div class="output-row"><span class="output-label">Bias:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.bias">Bias:</span><span
                                                     class="output-value" id="out-selector-bias">--</span></div>
-                                            <div class="output-row"><span class="output-label">Score:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.score">Score:</span><span
                                                     class="output-value" id="out-selector-score">--</span></div>
                                         </div>
                                         <div class="agent-summary" id="sum-symbol-selector">--</div>
@@ -248,22 +248,22 @@
                             <!-- Layer 2: Analysis Layer -->
                             <div class="flow-layer" data-layer="analysis">
                                 <div class="flow-layer-row">
-                                    <div class="layer-label">📊 Analysis Layer</div>
+                                    <div class="layer-label" data-i18n="framework.layer.analysis">📊 Analysis Layer</div>
                                     <div class="layer-agents">
                                     <div class="agent-box" id="flow-quant">
                                         <div class="agent-header">
                                             <span class="agent-emoji">👨‍🔬</span>
-                                            <span class="agent-title">Quant Analyst</span>
+                                            <span class="agent-title" data-i18n="agent.card.quant">Quant Analyst</span>
                                             <span class="agent-badge idle">Idle</span>
                                         </div>
                                         <div class="agent-output">
-                                            <div class="output-row"><span class="output-label">EMA:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.ema">EMA:</span><span
                                                     class="output-value" id="out-ema">--</span></div>
-                                            <div class="output-row"><span class="output-label">RSI:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.rsi">RSI:</span><span
                                                     class="output-value" id="out-rsi">--</span></div>
-                                            <div class="output-row"><span class="output-label">MACD:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.macd">MACD:</span><span
                                                     class="output-value" id="out-macd">--</span></div>
-                                            <div class="output-row"><span class="output-label">BB:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.bb">BB:</span><span
                                                     class="output-value" id="out-bb">--</span></div>
                                         </div>
                                         <div class="agent-summary" id="sum-quant">--</div>
@@ -271,15 +271,15 @@
                                     <div class="agent-box" id="flow-regime">
                                         <div class="agent-header">
                                             <span class="agent-emoji">🔮</span>
-                                            <span class="agent-title">Regime Detector</span>
+                                            <span class="agent-title" data-i18n="agent.card.regime">Regime Detector</span>
                                             <span class="agent-badge idle">Idle</span>
                                         </div>
                                         <div class="agent-output">
-                                            <div class="output-row"><span class="output-label">State:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.state">State:</span><span
                                                     class="output-value" id="out-regime">--</span></div>
-                                            <div class="output-row"><span class="output-label">ADX:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.adx">ADX:</span><span
                                                     class="output-value" id="out-adx">--</span></div>
-                                            <div class="output-row"><span class="output-label">Conf:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.conf">Conf:</span><span
                                                     class="output-value" id="out-regime-conf">--</span></div>
                                         </div>
                                         <div class="agent-summary" id="sum-regime">--</div>
@@ -287,15 +287,15 @@
                                     <div class="agent-box" id="flow-trigger-detector">
                                         <div class="agent-header">
                                             <span class="agent-emoji">⚡</span>
-                                            <span class="agent-title">Trigger Detector</span>
+                                            <span class="agent-title" data-i18n="agent.card.trigger_detector">Trigger Detector</span>
                                             <span class="agent-badge idle">Idle</span>
                                         </div>
                                         <div class="agent-output">
-                                            <div class="output-row"><span class="output-label">Pattern:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.pattern">Pattern:</span><span
                                                     class="output-value" id="out-pattern">--</span></div>
-                                            <div class="output-row"><span class="output-label">Signal:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.signal">Signal:</span><span
                                                     class="output-value" id="out-trigger-signal">--</span></div>
-                                            <div class="output-row"><span class="output-label">Score:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.score">Score:</span><span
                                                     class="output-value" id="out-trigger-score">--</span></div>
                                         </div>
                                         <div class="agent-summary" id="sum-trigger-detector">--</div>
@@ -303,15 +303,15 @@
                                     <div class="agent-box" id="flow-position-analyzer">
                                         <div class="agent-header">
                                             <span class="agent-emoji">📍</span>
-                                            <span class="agent-title">Position Analyzer</span>
+                                            <span class="agent-title" data-i18n="agent.card.position_analyzer">Position Analyzer</span>
                                             <span class="agent-badge idle">Idle</span>
                                         </div>
                                         <div class="agent-output">
-                                            <div class="output-row"><span class="output-label">Zone:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.zone">Zone:</span><span
                                                     class="output-value" id="out-zone">--</span></div>
-                                            <div class="output-row"><span class="output-label">S/R:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.sr">S/R:</span><span
                                                     class="output-value" id="out-sr">--</span></div>
-                                            <div class="output-row"><span class="output-label">Range:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.range">Range:</span><span
                                                     class="output-value" id="out-range">--</span></div>
                                         </div>
                                         <div class="agent-summary" id="sum-position-analyzer">--</div>
@@ -319,15 +319,15 @@
                                     <div class="agent-box" id="flow-predict">
                                         <div class="agent-header">
                                             <span class="agent-emoji">🎯</span>
-                                            <span class="agent-title">Predict Agent</span>
+                                            <span class="agent-title" data-i18n="agent.card.predict">Predict Agent</span>
                                             <span class="agent-badge idle">Idle</span>
                                         </div>
                                         <div class="agent-output">
-                                            <div class="output-row"><span class="output-label">P(Up):</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.pup">P(Up):</span><span
                                                     class="output-value bullish" id="out-pup">--%</span></div>
-                                            <div class="output-row"><span class="output-label">P(Down):</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.pdown">P(Down):</span><span
                                                     class="output-value bearish" id="out-pdown">--%</span></div>
-                                            <div class="output-row"><span class="output-label">Signal:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.signal">Signal:</span><span
                                                     class="output-value" id="out-signal">--</span></div>
                                         </div>
                                         <div class="agent-summary" id="sum-predict">--</div>
@@ -343,20 +343,20 @@
                             <!-- Layer 2.5: LLM Strategy Layer -->
                             <div class="flow-layer" data-layer="strategy">
                                 <div class="flow-layer-row">
-                                    <div class="layer-label">🧠 Semantic Strategy Layer</div>
+                                    <div class="layer-label" data-i18n="framework.layer.strategy">🧠 Semantic Strategy Layer</div>
                                     <div class="layer-agents">
                                     <div class="agent-box" id="flow-trend-agent">
                                         <div class="agent-header">
                                             <span class="agent-emoji">📈</span>
-                                            <span class="agent-title" id="title-trend-agent">Trend Agent</span>
+                                            <span class="agent-title" id="title-trend-agent" data-i18n="agent.card.trend">Trend Agent</span>
                                             <span class="agent-badge idle">Idle</span>
                                         </div>
                                         <div class="agent-output">
-                                            <div class="output-row"><span class="output-label">1h Trend:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.trend1h">1h Trend:</span><span
                                                     class="output-value" id="out-trend-1h">--</span></div>
-                                            <div class="output-row"><span class="output-label">Bias:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.bias">Bias:</span><span
                                                     class="output-value" id="out-trend-bias">--</span></div>
-                                            <div class="output-row"><span class="output-label">Conf:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.conf">Conf:</span><span
                                                     class="output-value" id="out-trend-conf">--</span></div>
                                         </div>
                                         <div class="agent-summary" id="sum-trend-agent">--</div>
@@ -364,15 +364,15 @@
                                     <div class="agent-box" id="flow-trigger-agent">
                                         <div class="agent-header">
                                             <span class="agent-emoji">🔥</span>
-                                            <span class="agent-title" id="title-trigger-agent">Trigger Agent</span>
+                                            <span class="agent-title" id="title-trigger-agent" data-i18n="agent.card.trigger">Trigger Agent</span>
                                             <span class="agent-badge idle">Idle</span>
                                         </div>
                                         <div class="agent-output">
-                                            <div class="output-row"><span class="output-label">5m Fire:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.fire5m">5m Fire:</span><span
                                                     class="output-value" id="out-fire">--</span></div>
-                                            <div class="output-row"><span class="output-label">Entry:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.entry">Entry:</span><span
                                                     class="output-value" id="out-entry-type">--</span></div>
-                                            <div class="output-row"><span class="output-label">Conf:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.conf">Conf:</span><span
                                                     class="output-value" id="out-fire-conf">--</span></div>
                                         </div>
                                         <div class="agent-summary" id="sum-trigger-agent">--</div>
@@ -380,15 +380,15 @@
                                     <div class="agent-box" id="flow-ai-filter">
                                         <div class="agent-header">
                                             <span class="agent-emoji">🚫</span>
-                                            <span class="agent-title">AI Filter</span>
+                                            <span class="agent-title" data-i18n="agent.card.ai_filter">AI Filter</span>
                                             <span class="agent-badge idle">Idle</span>
                                         </div>
                                         <div class="agent-output">
-                                            <div class="output-row"><span class="output-label">Status:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.status">Status:</span><span
                                                     class="output-value" id="out-ai-status">--</span></div>
-                                            <div class="output-row"><span class="output-label">Veto:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.veto">Veto:</span><span
                                                     class="output-value" id="out-ai-veto">--</span></div>
-                                            <div class="output-row"><span class="output-label">Reason:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.reason">Reason:</span><span
                                                     class="output-value" id="out-ai-reason">--</span></div>
                                         </div>
                                         <div class="agent-summary" id="sum-ai-filter">--</div>
@@ -404,12 +404,12 @@
                             <!-- Layer 3: Decision Layer -->
                             <div class="flow-layer" data-layer="decision">
                                 <div class="flow-layer-row">
-                                    <div class="layer-label">⚖️ Decision Layer</div>
+                                    <div class="layer-label" data-i18n="framework.layer.decision">⚖️ Decision Layer</div>
                                     <div class="layer-agents">
                                     <div class="agent-box decision-core" id="flow-decision">
                                         <div class="agent-header">
                                             <span class="agent-emoji">⚖️</span>
-                                            <span class="agent-title">Decision Core</span>
+                                            <span class="agent-title" data-i18n="agent.card.decision">Decision Core</span>
                                             <span class="agent-badge idle">Idle</span>
                                         </div>
                                         <div class="agent-output decision-output">
@@ -418,10 +418,10 @@
                                                 <span class="decision-conf">0%</span>
                                             </div>
                                             <div class="decision-votes">
-                                                <div class="vote-item"><span>🐂 Bull:</span><span
+                                                <div class="vote-item"><span data-i18n="agent.label.bull">🐂 Bull:</span><span
                                                         id="out-bull">--</span>
                                                 </div>
-                                                <div class="vote-item"><span>🐻 Bear:</span><span
+                                                <div class="vote-item"><span data-i18n="agent.label.bear">🐻 Bear:</span><span
                                                         id="out-bear">--</span>
                                                 </div>
                                             </div>
@@ -439,22 +439,22 @@
                             <!-- Layer 4: Execution Layer -->
                             <div class="flow-layer" data-layer="execution">
                                 <div class="flow-layer-row">
-                                    <div class="layer-label">🛡️ Execution Layer</div>
+                                    <div class="layer-label" data-i18n="framework.layer.execution">🛡️ Execution Layer</div>
                                     <div class="layer-agents">
                                     <div class="agent-box" id="flow-risk">
                                         <div class="agent-header">
                                             <span class="agent-emoji">🛡️</span>
-                                            <span class="agent-title">Risk Audit</span>
+                                            <span class="agent-title" data-i18n="agent.card.risk">Risk Audit</span>
                                             <span class="agent-badge idle">Idle</span>
                                         </div>
                                         <div class="agent-output">
-                                            <div class="output-row"><span class="output-label">Risk:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.risk">Risk:</span><span
                                                     class="output-value" id="out-risk">--</span></div>
-                                            <div class="output-row"><span class="output-label">Size:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.size">Size:</span><span
                                                     class="output-value" id="out-size">--</span></div>
-                                            <div class="output-row"><span class="output-label">SL:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.sl">SL:</span><span
                                                     class="output-value" id="out-sl">--</span></div>
-                                            <div class="output-row"><span class="output-label">TP:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.tp">TP:</span><span
                                                     class="output-value" id="out-tp">--</span></div>
                                         </div>
                                         <div class="agent-summary" id="sum-risk">--</div>
@@ -462,7 +462,7 @@
                                     <div class="agent-box final-output" id="flow-output">
                                         <div class="agent-header">
                                             <span class="agent-emoji">📤</span>
-                                            <span class="agent-title">Final Output</span>
+                                            <span class="agent-title" data-i18n="agent.card.final_output">Final Output</span>
                                         </div>
                                         <div class="final-result" id="out-final">
                                             <div class="final-action">--</div>
@@ -476,15 +476,15 @@
                                     <div class="agent-box" id="flow-reflection">
                                         <div class="agent-header">
                                             <span class="agent-emoji">🪞</span>
-                                            <span class="agent-title" id="title-reflection-agent">Reflection Agent</span>
+                                            <span class="agent-title" id="title-reflection-agent" data-i18n="agent.card.reflection">Reflection Agent</span>
                                             <span class="agent-badge idle">Idle</span>
                                         </div>
                                         <div class="agent-output">
-                                            <div class="output-row"><span class="output-label">Trades:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.trades">Trades:</span><span
                                                     class="output-value" id="out-trades-count">--</span></div>
-                                            <div class="output-row"><span class="output-label">Win Rate:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.winrate">Win Rate:</span><span
                                                     class="output-value" id="out-win-rate">--</span></div>
-                                            <div class="output-row"><span class="output-label">Insight:</span><span
+                                            <div class="output-row"><span class="output-label" data-i18n="agent.label.insight">Insight:</span><span
                                                     class="output-value" id="out-insight">--</span></div>
                                         </div>
                                         <div class="agent-summary" id="sum-reflection">--</div>
@@ -496,11 +496,11 @@
 
                         <!-- Data Flow Legend -->
                         <div class="flow-legend">
-                            <div class="legend-item"><span class="legend-dot idle"></span>Idle</div>
-                            <div class="legend-item"><span class="legend-dot running"></span>Running</div>
-                            <div class="legend-item"><span class="legend-dot completed"></span>Completed</div>
-                            <div class="legend-item"><span class="legend-dot long"></span>LONG</div>
-                            <div class="legend-item"><span class="legend-dot short"></span>SHORT</div>
+                            <div class="legend-item"><span class="legend-dot idle"></span><span data-i18n="framework.legend.idle">Idle</span></div>
+                            <div class="legend-item"><span class="legend-dot running"></span><span data-i18n="framework.legend.running">Running</span></div>
+                            <div class="legend-item"><span class="legend-dot completed"></span><span data-i18n="framework.legend.completed">Completed</span></div>
+                            <div class="legend-item"><span class="legend-dot long"></span><span data-i18n="framework.legend.long">LONG</span></div>
+                            <div class="legend-item"><span class="legend-dot short"></span><span data-i18n="framework.legend.short">SHORT</span></div>
                             <button onclick="window.resetAgentPositions()" class="reset-positions-btn"
                                 title="Reset agent positions to default">🔄 Reset Layout</button>
                         </div>

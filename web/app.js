@@ -316,14 +316,21 @@ function updateDashboard() {
                 // Construct account object compatible with renderAccount
                 const va = data.virtual_account;
                 const unrealized = va.total_unrealized_pnl || 0;
+                const realizedPnl = va.cumulative_realized_pnl || 0;  // For reference display
                 const initialBalance = va.initial_balance || 0;
+                // Total Equity = Current Balance (already includes realized PnL) + Unrealized PnL
                 const totalEquity = va.current_balance + unrealized;
+                // Total PnL = Total Equity - Initial Balance (most accurate formula)
+                // Note: current_balance already includes realized PnL from closed trades
+                const totalPnl = totalEquity - initialBalance;
                 activeAccount = {
                     total_equity: totalEquity,
                     wallet_balance: va.current_balance,
                     available_balance: va.available_balance || va.current_balance,  // 可用余额 = 资金 - 持仓
-                    total_pnl: totalEquity - initialBalance,
-                    initial_balance: initialBalance // ✅ Explicitly pass Initial Balance
+                    total_pnl: totalPnl,  // ✅ Accurate: Equity - Initial
+                    initial_balance: initialBalance, // ✅ Explicitly pass Initial Balance
+                    realized_pnl: realizedPnl,  // For potential separate display
+                    unrealized_pnl: unrealized   // For potential separate display
                 };
 
                 // Convert virtual positions dict to array for UI
@@ -989,6 +996,21 @@ function updateAgentFramework(system, decision, agents) {
         return typeof raw === 'string' ? raw.trim() : raw;
     };
     const mode = resolveMode(system);
+    const lang = window.currentLang === 'zh' ? 'zh' : 'en';
+    const statusLabels = {
+        en: {
+            Idle: 'Idle',
+            Running: 'Running',
+            Done: 'Done',
+            Off: 'Off'
+        },
+        zh: {
+            Idle: '空闲',
+            Running: '运行中',
+            Done: '完成',
+            Off: '关闭'
+        }
+    };
     const modeLower = typeof mode === 'string' ? mode.toLowerCase() : '';
     const isRunningMode = modeLower === 'running' || modeLower === 'online' || modeLower === 'active';
     const isPausedMode = modeLower === 'paused';
@@ -1005,38 +1027,54 @@ function updateAgentFramework(system, decision, agents) {
     const agentConfig = normalizeAgentConfig(window.agentConfig || {});
     const isEnabled = (key) => agentConfig[key] !== false;
 
+    const titleMap = {
+        en: {
+            trend: { llm: 'Trend Agent (LLM)', local: 'Trend Agent', fallback: 'Trend Agent' },
+            trigger: { llm: 'Trigger Agent (LLM)', local: 'Trigger Agent', fallback: 'Trigger Agent' },
+            reflection: { llm: 'Reflection Agent (LLM)', local: 'Reflection Agent', fallback: 'Reflection Agent' }
+        },
+        zh: {
+            trend: { llm: '趋势代理(LLM)', local: '趋势代理', fallback: '趋势代理' },
+            trigger: { llm: '触发代理(LLM)', local: '触发代理', fallback: '触发代理' },
+            reflection: { llm: '复盘代理(LLM)', local: '复盘代理', fallback: '复盘代理' }
+        }
+    };
+
     const trendTitle = document.getElementById('title-trend-agent');
     if (trendTitle) {
         const trendUsesLLM = agentConfig.trend_agent_llm || agentConfig.setup_agent_llm;
         const trendUsesLocal = agentConfig.trend_agent_local || agentConfig.setup_agent_local;
+        const labels = titleMap[lang]?.trend || titleMap.en.trend;
         if (trendUsesLLM) {
-            trendTitle.textContent = 'TrendAgentLLM';
+            trendTitle.textContent = labels.llm;
         } else if (trendUsesLocal) {
-            trendTitle.textContent = 'TrendAgent';
+            trendTitle.textContent = labels.local;
         } else {
-            trendTitle.textContent = 'Trend Agent';
+            trendTitle.textContent = labels.fallback;
         }
     }
 
     const triggerTitle = document.getElementById('title-trigger-agent');
     if (triggerTitle) {
+        const labels = titleMap[lang]?.trigger || titleMap.en.trigger;
         if (agentConfig.trigger_agent_llm) {
-            triggerTitle.textContent = 'TriggerAgentLLM';
+            triggerTitle.textContent = labels.llm;
         } else if (agentConfig.trigger_agent_local) {
-            triggerTitle.textContent = 'TriggerAgent';
+            triggerTitle.textContent = labels.local;
         } else {
-            triggerTitle.textContent = 'Trigger Agent';
+            triggerTitle.textContent = labels.fallback;
         }
     }
 
     const reflectionTitle = document.getElementById('title-reflection-agent');
     if (reflectionTitle) {
+        const labels = titleMap[lang]?.reflection || titleMap.en.reflection;
         if (agentConfig.reflection_agent_llm) {
-            reflectionTitle.textContent = 'ReflectionAgentLLM';
+            reflectionTitle.textContent = labels.llm;
         } else if (agentConfig.reflection_agent_local) {
-            reflectionTitle.textContent = 'ReflectionAgent';
+            reflectionTitle.textContent = labels.local;
         } else {
-            reflectionTitle.textContent = 'Reflection Agent';
+            reflectionTitle.textContent = labels.fallback;
         }
     }
 
@@ -1048,6 +1086,7 @@ function updateAgentFramework(system, decision, agents) {
         if (status === 'Running') statusClass = 'running';
         else if (status === 'Done') statusClass = 'completed';
         else if (status === 'Off') statusClass = 'off';
+        const displayStatus = statusLabels[lang]?.[status] || status;
         if (box) {
             const currentClass = box.classList.contains('running')
                 ? 'running'
@@ -1060,7 +1099,7 @@ function updateAgentFramework(system, decision, agents) {
                             : null;
             if (currentClass === statusClass) {
                 if (badge) {
-                    badge.textContent = status;
+                    badge.textContent = displayStatus;
                     badge.className = 'agent-badge';
                     badge.classList.add(statusClass);
                 }
@@ -1072,7 +1111,7 @@ function updateAgentFramework(system, decision, agents) {
             box.classList.add(statusClass);
         }
         if (badge) {
-            badge.textContent = status;
+            badge.textContent = displayStatus;
             badge.className = 'agent-badge';
             badge.classList.add(statusClass);
         }
@@ -2997,12 +3036,15 @@ function renderTradeHistory(trades) {
     }
 
     tbody.innerHTML = trades.map(trade => {
-        const time = trade.recorded_at || trade.timestamp || '-';
-        const openCycle = formatCycle(trade.cycle);
-        const closeCycle = formatCycle(trade.close_cycle);
+        const time = trade.recorded_at || trade.timestamp || trade.record_time || '-';
+        const openCycleRaw = trade.cycle !== undefined ? trade.cycle : trade.open_cycle;
+        const openCycle = formatCycle(openCycleRaw === 0 || openCycleRaw === '0' ? '-' : openCycleRaw);
+        const closeCycleRaw = trade.close_cycle;
+        const closeCycle = formatCycle(closeCycleRaw === 0 || closeCycleRaw === '0' ? '-' : closeCycleRaw);
         const symbol = trade.symbol || '-';
-        const entryPrice = trade.entry_price ? `$${Number(trade.entry_price).toLocaleString()}` : '-';
-        const posValue = trade.quantity && trade.entry_price ? `$${(trade.quantity * trade.entry_price).toFixed(2)}` : '-';
+        const entryPriceValue = trade.entry_price !== undefined ? trade.entry_price : trade.price;
+        const entryPrice = entryPriceValue ? `$${Number(entryPriceValue).toLocaleString()}` : '-';
+        const posValue = trade.quantity && entryPriceValue ? `$${(trade.quantity * entryPriceValue).toFixed(2)}` : '-';
         const exitPrice = trade.exit_price ? `$${Number(trade.exit_price).toLocaleString()}` : '-';
 
         // PnL formatting
@@ -3015,8 +3057,8 @@ function renderTradeHistory(trades) {
             pnlHtml = `<span class="val ${pnlClass}">${pnlSign}$${pnl.toFixed(2)}</span>`;
 
             // Calculate PnL %
-            if (trade.entry_price && trade.quantity) {
-                const posValue = trade.entry_price * trade.quantity;
+            if (entryPriceValue && trade.quantity) {
+                const posValue = entryPriceValue * trade.quantity;
                 const pnlPct = (pnl / posValue * 100).toFixed(2);
                 pnlPctHtml = `<span class="val ${pnlClass}">${pnlSign}${pnlPct}%</span>`;
             }

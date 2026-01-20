@@ -264,7 +264,8 @@ async def get_status(authenticated: bool = Depends(verify_auth)):
             "current_balance": global_state.virtual_balance,
             "available_balance": global_state.virtual_balance - sum((pos.get('position_value', 0) / pos.get('leverage', 1)) for pos in global_state.virtual_positions.values()),
             "positions": global_state.virtual_positions,
-            "total_unrealized_pnl": sum(pos.get('unrealized_pnl', 0) for pos in global_state.virtual_positions.values())
+            "total_unrealized_pnl": sum(pos.get('unrealized_pnl', 0) for pos in global_state.virtual_positions.values()),
+            "cumulative_realized_pnl": global_state.cumulative_realized_pnl  # Total realized PnL from closed trades
         },
         "account_alert": {
             "active": global_state.account_alert_active,

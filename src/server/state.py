@@ -50,6 +50,7 @@ class SharedState:
     virtual_initial_balance: float = 1000.0  # Starting balance for test mode
     virtual_balance: float = 1000.0  # Current balance in test mode
     virtual_positions: Dict[str, Dict] = field(default_factory=dict)  # {symbol: {entry_price, quantity, side, ...}}
+    cumulative_realized_pnl: float = 0.0  # Total realized PnL from all closed trades
     
     # Account Failure Tracking
     account_failure_count: int = 0  # Consecutive failures
@@ -201,7 +202,12 @@ class SharedState:
         current_balance = self.virtual_balance if self.is_test_mode else self.account_overview.get('total_equity', 0)
         pnl = trade.get('pnl', 0.0)
         
-        # Calculate cumulative PnL
+        # Accumulate realized PnL from closed trades
+        if pnl != 0:
+            self.cumulative_realized_pnl += pnl
+            log.info(f"📊 Realized PnL updated: +${pnl:.2f}, Total: ${self.cumulative_realized_pnl:.2f}")
+        
+        # Calculate cumulative PnL (for balance history)
         cumulative_pnl = current_balance - self.initial_balance if self.initial_balance > 0 else 0
         pnl_pct = (cumulative_pnl / self.initial_balance * 100) if self.initial_balance > 0 else 0
         

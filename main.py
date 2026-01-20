@@ -2513,6 +2513,10 @@ class MultiAgentTradingBot:
                                 trade['status'] = 'CLOSED'
                                 log.info(f"✅ Synced global_state.trade_history: {self.current_symbol} PnL ${realized_pnl:.2f}")
                                 break
+                        
+                        # 🆕 Accumulate realized PnL for dashboard Total PnL calculation
+                        global_state.cumulative_realized_pnl += realized_pnl
+                        log.info(f"📊 Cumulative Realized PnL: ${global_state.cumulative_realized_pnl:.2f}")
                 
                 # Only save NEW record if it's OPEN action OR if Update Failed (Fallback)
                 if not update_success:
@@ -2654,6 +2658,10 @@ class MultiAgentTradingBot:
                                 trade['status'] = 'CLOSED'
                                 log.info(f"✅ Synced global_state.trade_history: {self.current_symbol} PnL ${pnl:.2f}")
                                 break
+                        
+                        # 🆕 Accumulate realized PnL for dashboard Total PnL calculation
+                        global_state.cumulative_realized_pnl += pnl
+                        log.info(f"📊 Cumulative Realized PnL: ${global_state.cumulative_realized_pnl:.2f}")
                 
                 if not update_success:
                     is_open_action = 'open' in order_params['action'].lower()
