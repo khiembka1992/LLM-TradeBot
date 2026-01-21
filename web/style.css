@@ -3046,8 +3046,10 @@ tr:first-child td {
 
 .account-stat {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: flex-start;
+    gap: 4px;
     padding: 6px 8px;
     background: rgba(255, 255, 255, 0.03);
     border-radius: 6px;
@@ -3061,12 +3063,6 @@ tr:first-child td {
 .account-stats-grid.compact {
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 6px;
-}
-
-.account-stats-grid.compact .account-stat {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 4px;
 }
 
 .account-stat.primary {
