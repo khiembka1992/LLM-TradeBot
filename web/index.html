@@ -134,48 +134,29 @@
                     </div>
                 </div>
 
-                <!-- Account Summary -->
-                <div class="glass-panel card account-info-card">
-                    <h2>💰 Account Summary</h2>
-                    <div class="account-summary-body">
-                        <div class="account-stats-grid compact">
-                            <div class="account-stat">
-                                <span class="stat-label">Wallet Balance</span>
-                                <span class="stat-value" id="account-wallet-balance">$0.00</span>
-                            </div>
-                            <div class="account-stat">
-                                <span class="stat-label">Available Balance</span>
-                                <span class="stat-value" id="account-available-balance">$0.00</span>
-                            </div>
-                            <div class="account-stat primary">
-                                <span class="stat-label">Total Equity</span>
-                                <span class="stat-value" id="acc-equity">$0.00</span>
-                            </div>
-                            <div class="account-stat">
-                                <span class="stat-label">Initial Capital</span>
-                                <span class="stat-value" id="acc-initial">$0.00</span>
-                            </div>
-                            <div class="account-stat highlight">
-                                <span class="stat-label">Total PnL</span>
-                                <span class="stat-value" id="acc-pnl">$0.00</span>
-                            </div>
-                            <div class="account-stat highlight">
-                                <span class="stat-label">PnL %</span>
-                                <span class="stat-value" id="account-total-pnl-pct">0.00%</span>
-                            </div>
-                            <div class="account-stat">
-                                <span class="stat-label">Trades</span>
-                                <span class="stat-value" id="account-trades-count">0</span>
-                            </div>
-                            <div class="account-stat">
-                                <span class="stat-label">Win Rate</span>
-                                <span class="stat-value" id="account-win-rate">0.00%</span>
-                            </div>
+                <!-- Real-time PnL Curve -->
+                <div class="glass-panel card pnl-curve-card">
+                    <h2 data-i18n="section.balance_curve">📈 Real-time Balance Curve</h2>
+                    <div class="pnl-metrics">
+                        <div class="pnl-metric">
+                            <span class="stat-label" data-i18n="account.wallet_balance">Wallet Balance</span>
+                            <span class="stat-value" id="account-wallet-balance">$0.00</span>
                         </div>
-                        <div class="account-positions">
-                            <div class="account-position-count" id="position-count">📊 Positions: 0</div>
-                            <div id="position-details">No open positions</div>
+                        <div class="pnl-metric">
+                            <span class="stat-label" data-i18n="account.total_equity">Total Equity</span>
+                            <span class="stat-value" id="acc-equity">$0.00</span>
                         </div>
+                        <div class="pnl-metric">
+                            <span class="stat-label" data-i18n="account.total_pnl">Total PnL</span>
+                            <span class="stat-value" id="acc-pnl">$0.00</span>
+                        </div>
+                        <div class="pnl-metric">
+                            <span class="stat-label" data-i18n="account.pnl_pct">PnL %</span>
+                            <span class="stat-value" id="account-total-pnl-pct">0.00%</span>
+                        </div>
+                    </div>
+                    <div class="pnl-chart-wrapper">
+                        <canvas id="equityChart" data-chart-mode="equity"></canvas>
                     </div>
                 </div>
             </section>

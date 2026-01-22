@@ -18,6 +18,7 @@ const i18n = {
         // Main Sections
         'section.kline': '📉 Real-time K-Line',
         'section.netvalue': '📈 Net Value Curve',
+        'section.balance_curve': '📈 Real-time Balance Curve',
         'section.decisions': '📋 Recent Decisions',
         'section.trades': '📜 Trade History',
         'section.logs': '📡 Live Log Output',
@@ -27,6 +28,14 @@ const i18n = {
         'chart.current': 'Current Funds',
         'chart.available': 'Available',
         'chart.profit': 'Total Profit',
+        'chart.balance': 'Balance (USDT)',
+        'chart.break_even': 'Break-even',
+
+        // Account Summary (Condensed)
+        'account.wallet_balance': 'Wallet Balance',
+        'account.total_equity': 'Total Equity',
+        'account.total_pnl': 'Total PnL',
+        'account.pnl_pct': 'PnL %',
 
         // Decision Table - Agent Groups
         'group.system': '📊 System',
@@ -362,6 +371,7 @@ const i18n = {
         // Main Sections
         'section.kline': '📉 实时K线',
         'section.netvalue': '📈 净值曲线',
+        'section.balance_curve': '📈 实时余额曲线',
         'section.decisions': '📋 最近决策',
         'section.trades': '📜 交易历史',
         'section.logs': '📡 实时日志',
@@ -371,6 +381,14 @@ const i18n = {
         'chart.current': '当前资金',
         'chart.available': '可用余额',
         'chart.profit': '总盈亏',
+        'chart.balance': '余额 (USDT)',
+        'chart.break_even': '盈亏平衡',
+
+        // Account Summary (Condensed)
+        'account.wallet_balance': '钱包余额',
+        'account.total_equity': '总权益',
+        'account.total_pnl': '总盈亏',
+        'account.pnl_pct': '盈亏比例',
 
         // Decision Table - Agent Groups
         'group.system': '📊 系统',

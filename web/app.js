@@ -37,6 +37,25 @@ function applyTranslations(lang) {
     });
 }
 
+function getI18n(key, fallback = '') {
+    const lang = window.currentLang || 'en';
+    return window.i18n?.[lang]?.[key] || fallback;
+}
+
+function updateChartLabels() {
+    if (!equityChart) return;
+    const isPnl = equityChart?.canvas?.dataset?.chartMode === 'pnl';
+    equityChart.data.datasets[0].label = isPnl
+        ? getI18n('chart.profit', 'Total Profit')
+        : getI18n('chart.balance', 'Balance (USDT)');
+    if (equityChart.data.datasets[1]) {
+        equityChart.data.datasets[1].label = isPnl
+            ? getI18n('chart.break_even', 'Break-even')
+            : getI18n('chart.initial', 'Initial Balance');
+    }
+    equityChart.update('none');
+}
+
 // Toggle language between EN and ZH
 function toggleLanguage() {
     console.log('🌐 Language toggle triggered');
@@ -44,6 +63,7 @@ function toggleLanguage() {
     localStorage.setItem('language', window.currentLang);
     applyTranslations(window.currentLang);
     updateLanguageButton();
+    updateChartLabels();
 }
 
 
@@ -58,6 +78,33 @@ function updateLanguageButton() {
 // Chart Instance
 let equityChart = null;
 
+const CHART_COLORS = {
+    pos: { line: '#00ff9d', fillTop: 'rgba(0, 255, 157, 0.35)', fillBottom: 'rgba(0, 255, 157, 0.02)' },
+    neg: { line: '#ff5b5b', fillTop: 'rgba(255, 91, 91, 0.3)', fillBottom: 'rgba(255, 91, 91, 0.02)' },
+    neutral: { line: '#a1b4c6', fillTop: 'rgba(161, 180, 198, 0.25)', fillBottom: 'rgba(161, 180, 198, 0.02)' }
+};
+
+function formatCurrency(value) {
+    const num = Number(value) || 0;
+    const abs = Math.abs(num);
+    const sign = num < 0 ? '-' : '';
+    return `${sign}$${abs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function extractTimeLabel(label) {
+    if (!label) return '';
+    const str = String(label);
+    const match = str.match(/(\d{2}:\d{2})(?::\d{2})?/);
+    return match ? match[1] : str;
+}
+
+function extractDateTimeLabel(label) {
+    if (!label) return '';
+    const str = String(label);
+    const match = str.match(/(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::\d{2})?/);
+    return match ? `${match[1]} ${match[2]}` : str;
+}
+
 function initChart() {
     // Destroy existing chart if it exists to prevent "Canvas is already in use" error
     if (equityChart) {
@@ -67,20 +114,41 @@ function initChart() {
 
     const canvas = document.getElementById('equityChart');
     if (!canvas) return;
+    const chartMode = canvas.dataset.chartMode || 'equity';
+    const isPnl = chartMode === 'pnl';
     const ctx = canvas.getContext('2d');
     equityChart = new Chart(ctx, {
         type: 'line',
         data: {
             labels: [],
             datasets: [{
-                label: 'Total Equity (USDT)',
+                label: isPnl
+                    ? getI18n('chart.profit', 'Total Profit')
+                    : getI18n('chart.balance', 'Balance (USDT)'),
                 data: [],
-                borderColor: '#00ff9d',
-                backgroundColor: 'rgba(0, 255, 157, 0.1)',
-                borderWidth: 2,
+                borderColor: (context) => context.dataset.customLineColor || CHART_COLORS.pos.line,
+                backgroundColor: (context) => {
+                    const { chart } = context;
+                    const { chartArea } = chart;
+                    if (!chartArea) return CHART_COLORS.pos.fillTop;
+                    const top = context.dataset.customFillTop || CHART_COLORS.pos.fillTop;
+                    const bottom = context.dataset.customFillBottom || CHART_COLORS.pos.fillBottom;
+                    const gradient = chart.ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+                    gradient.addColorStop(0, top);
+                    gradient.addColorStop(1, bottom);
+                    return gradient;
+                },
+                borderWidth: 2.4,
                 fill: true,
-                tension: 0.4,
-                pointRadius: 0
+                tension: 0.35,
+                pointRadius: (context) => {
+                    const len = context.dataset.data ? context.dataset.data.length : 0;
+                    return context.dataIndex === len - 1 ? 3.5 : 0;
+                },
+                pointHoverRadius: 5,
+                pointHitRadius: 12,
+                pointBorderWidth: 2,
+                pointBorderColor: 'rgba(6, 10, 16, 0.9)'
             }]
         },
         options: {
@@ -91,11 +159,21 @@ function initChart() {
                 tooltip: {
                     mode: 'index',
                     intersect: false,
-                    backgroundColor: 'rgba(23, 25, 30, 0.9)',
-                    titleColor: '#94a3b8',
-                    bodyColor: '#e0e6ed',
-                    borderColor: 'rgba(255, 255, 255, 0.1)',
-                    borderWidth: 1
+                    backgroundColor: 'rgba(10, 12, 18, 0.95)',
+                    titleColor: '#cbd5f5',
+                    bodyColor: '#eef3ff',
+                    borderColor: 'rgba(255, 255, 255, 0.15)',
+                    borderWidth: 1,
+                    padding: 10,
+                    callbacks: {
+                        title: function (items) {
+                            return items && items[0] ? extractDateTimeLabel(items[0].label) : '';
+                        },
+                        label: function (context) {
+                            const label = context.dataset.label || '';
+                            return `${label}: ${formatCurrency(context.parsed.y)}`;
+                        }
+                    }
                 }
             },
             scales: {
@@ -103,38 +181,40 @@ function initChart() {
                     grid: { color: 'rgba(255, 255, 255, 0.05)' },
                     ticks: {
                         color: '#94a3b8',
-                        maxRotation: 45,
+                        maxRotation: 0,
                         minRotation: 0,
                         autoSkip: false,
                         callback: function (value, index, ticks) {
                             const totalLabels = ticks.length;
 
-                            // Always show first label (first cycle time)
-                            if (index === 0) return this.getLabelForValue(value);
+                            // Always show first label
+                            if (index === 0) return extractTimeLabel(this.getLabelForValue(value));
 
                             // Always show last label
-                            if (index === totalLabels - 1) return this.getLabelForValue(value);
+                            if (index === totalLabels - 1) return extractTimeLabel(this.getLabelForValue(value));
 
                             // Calculate interval based on total labels
                             let interval;
-                            if (totalLabels <= 10) interval = 1;        // Show all
-                            else if (totalLabels <= 30) interval = 3;   // Show every 3rd
-                            else if (totalLabels <= 60) interval = 5;   // Show every 5th
-                            else if (totalLabels <= 120) interval = 10; // Show every 10th
-                            else interval = 20;                          // Show every 20th
+                            if (totalLabels <= 10) interval = 1;
+                            else if (totalLabels <= 30) interval = 3;
+                            else if (totalLabels <= 60) interval = 5;
+                            else if (totalLabels <= 120) interval = 10;
+                            else interval = 20;
 
-                            // Show label at intervals
                             if (index % interval === 0) {
-                                return this.getLabelForValue(value);
+                                return extractTimeLabel(this.getLabelForValue(value));
                             }
 
-                            return ''; // Hide this label
+                            return '';
                         }
                     }
                 },
                 y: {
                     grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                    ticks: { color: '#94a3b8' },
+                    ticks: {
+                        color: '#94a3b8',
+                        callback: (value) => formatCurrency(value)
+                    },
                     beginAtZero: true
                 }
             },
@@ -142,6 +222,9 @@ function initChart() {
                 mode: 'nearest',
                 axis: 'x',
                 intersect: false
+            },
+            elements: {
+                line: { borderCapStyle: 'round', borderJoinStyle: 'round' }
             }
         }
     });
@@ -290,8 +373,9 @@ function updateDashboard() {
             }
             const selectorInfo = data.agents?.symbol_selector || {};
             const selectorMode = (selectorInfo.mode || '').toUpperCase();
-            const selectorSymbol = selectorInfo.symbol;
+            const selectorSymbol = selectorInfo.symbol && selectorInfo.symbol !== '--' ? selectorInfo.symbol : null;
             const autoSymbol = selectorMode.startsWith('AUTO') ? selectorSymbol : null;
+            const agentSymbol = selectorSymbol || autoSymbol || null;
 
             // Log symbol selector info for debugging
             if (autoSymbol) {
@@ -306,7 +390,8 @@ function updateDashboard() {
             }
 
             const preferredSymbol = getPreferredSymbol(data.system, decisionMap);
-            const headerSymbol = (data.system && data.system.current_symbol)
+            const headerSymbol = agentSymbol
+                || (data.system && data.system.current_symbol)
                 || preferredSymbol
                 || currentDecision?.symbol
                 || (Array.isArray(data.system?.symbols) && data.system.symbols.length > 0 ? data.system.symbols[0] : null);
@@ -318,12 +403,11 @@ function updateDashboard() {
             }
 
             // Priority: AUTO symbol > header symbol > preferred symbol
-            const chartSymbol = autoSymbol || headerSymbol || preferredSymbol;
+            const chartSymbol = agentSymbol || headerSymbol || preferredSymbol;
             if (chartSymbol
                 && typeof loadTradingViewChart === 'function'
                 && chartSymbol !== window.lastChartSymbol) {
                 console.log(`📈 Chart Update: ${window.lastChartSymbol || 'none'} → ${chartSymbol}`);
-                window.lastChartSymbol = chartSymbol;
                 loadTradingViewChart(chartSymbol);
             }
 
@@ -370,6 +454,12 @@ function updateDashboard() {
                 renderAccount(activeAccount);
                 updatePositionInfo(activeAccount, activePositions);
             }
+            updateRealtimeBalance({
+                account: activeAccount,
+                system: data.system,
+                virtualAccount: data.virtual_account,
+                chartData: data.chart_data
+            });
             updateAccountTradeStats(data.trade_history || []);
 
             // Determine Initial Amount for Chart Baseline
@@ -740,6 +830,66 @@ function renderAccount(account) {
     }
 }
 
+function updateRealtimeBalance({ account, system, virtualAccount, chartData }) {
+    const fmt = num => `$${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const setTxt = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = val;
+    };
+    const setPnlClass = (id, val) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.classList.remove('pos', 'neg', 'neutral');
+        if (val > 0) {
+            el.classList.add('pos');
+        } else if (val < 0) {
+            el.classList.add('neg');
+        } else {
+            el.classList.add('neutral');
+        }
+    };
+
+    const hasVirtual = system?.is_test_mode && virtualAccount;
+    const hasAccount = !!account;
+    if (!hasVirtual && !hasAccount) {
+        setTxt('account-realtime-balance', '--');
+        setTxt('account-realtime-initial', '--');
+        setTxt('account-realtime-realized', '--');
+        setTxt('account-realtime-unrealized', '--');
+        return;
+    }
+
+    let initial = 1000;
+    let realized = 0;
+    let unrealized = 0;
+
+    if (hasVirtual) {
+        const rawInitial = Number(virtualAccount.initial_balance ?? 1000);
+        initial = Number.isFinite(rawInitial) && rawInitial > 0 ? rawInitial : 1000;
+        realized = Number(virtualAccount.cumulative_realized_pnl ?? 0) || 0;
+        unrealized = Number(virtualAccount.total_unrealized_pnl ?? 0) || 0;
+    } else if (hasAccount) {
+        const wallet = Number(account.wallet_balance ?? 0) || 0;
+        const totalEquity = Number(account.total_equity ?? wallet) || wallet;
+        const rawInitial = Number(account.initial_balance ?? chartData?.initial_balance ?? 0);
+        initial = Number.isFinite(rawInitial) && rawInitial > 0 ? rawInitial : 1000;
+        const rawRealized = Number(account.realized_pnl ?? NaN);
+        const rawUnrealized = Number(account.unrealized_pnl ?? NaN);
+        unrealized = Number.isFinite(rawUnrealized) ? rawUnrealized : (totalEquity - wallet);
+        realized = Number.isFinite(rawRealized) ? rawRealized : (wallet - initial);
+    }
+
+    const realtimeBalance = initial + realized + unrealized;
+
+    setTxt('account-realtime-balance', fmt(realtimeBalance));
+    setTxt('account-realtime-initial', fmt(initial));
+    setTxt('account-realtime-realized', fmt(realized));
+    setTxt('account-realtime-unrealized', fmt(unrealized));
+    setPnlClass('account-realtime-realized', realized);
+    setPnlClass('account-realtime-unrealized', unrealized);
+    setPnlClass('account-realtime-balance', realtimeBalance - initial);
+}
+
 function updateAccountTradeStats(trades) {
     const tradesEl = document.getElementById('account-trades-count');
     const winRateEl = document.getElementById('account-win-rate');
@@ -778,23 +928,40 @@ function renderChart(history, initialAmount = null) {
     const dataToShow = history;
 
     const times = dataToShow.map(h => h.time);
-    const values = dataToShow.map(h => h.value);
+    const rawValues = dataToShow.map(h => h.value);
 
     // Determine Initial Amount (Baseline)
     // If not provided, fallback to the first value in history, or 0
-    const baseline = initialAmount !== null ? initialAmount : (values.length > 0 ? values[0] : 0);
+    const baseline = initialAmount !== null ? initialAmount : (rawValues.length > 0 ? rawValues[0] : 0);
+    const isPnl = equityChart?.canvas?.dataset?.chartMode === 'pnl';
+    const values = isPnl ? rawValues.map(value => value - baseline) : rawValues;
+    const baselineValue = isPnl ? 0 : baseline;
+    const latestValue = values.length > 0 ? values[values.length - 1] : baselineValue;
+    const trendDelta = isPnl ? latestValue : (latestValue - baseline);
+    const tone = trendDelta > 0 ? 'pos' : (trendDelta < 0 ? 'neg' : 'neutral');
+    const toneColors = CHART_COLORS[tone];
 
     equityChart.data.labels = times;
+    equityChart.data.datasets[0].label = isPnl
+        ? getI18n('chart.profit', 'Total Profit')
+        : getI18n('chart.balance', 'Balance (USDT)');
     equityChart.data.datasets[0].data = values;
+    equityChart.data.datasets[0].customLineColor = toneColors.line;
+    equityChart.data.datasets[0].customFillTop = toneColors.fillTop;
+    equityChart.data.datasets[0].customFillBottom = toneColors.fillBottom;
+    equityChart.data.datasets[0].pointBackgroundColor = toneColors.line;
+    equityChart.data.datasets[0].pointHoverBackgroundColor = toneColors.line;
 
     // --- Add Dashed Line for Initial Amount ---
     // We create a constant array of the same length as data
-    const baselineData = new Array(values.length).fill(baseline);
+    const baselineData = new Array(values.length).fill(baselineValue);
 
     // Check if second dataset exists (index 1), if not create it
     if (!equityChart.data.datasets[1]) {
         equityChart.data.datasets.push({
-            label: 'Initial Capital',
+            label: isPnl
+                ? getI18n('chart.break_even', 'Break-even')
+                : getI18n('chart.initial', 'Initial Balance'),
             data: baselineData,
             borderColor: 'rgba(255, 255, 255, 0.3)', // Faint white
             borderWidth: 1,
@@ -804,6 +971,9 @@ function renderChart(history, initialAmount = null) {
             tension: 0
         });
     } else {
+        equityChart.data.datasets[1].label = isPnl
+            ? getI18n('chart.break_even', 'Break-even')
+            : getI18n('chart.initial', 'Initial Balance');
         equityChart.data.datasets[1].data = baselineData;
     }
     // ------------------------------------------
@@ -815,16 +985,17 @@ function renderChart(history, initialAmount = null) {
         const minVal = Math.min(...values);
 
         // Calculate the maximum deviation from the baseline
-        const deltaUp = Math.abs(maxVal - baseline);
-        const deltaDown = Math.abs(minVal - baseline);
+        const deltaUp = Math.abs(maxVal - baselineValue);
+        const deltaDown = Math.abs(minVal - baselineValue);
         const maxDelta = Math.max(deltaUp, deltaDown);
 
         // Add some padding (e.g. 10%) so the curve doesn't touch the edges
         // Ensure even if flat, we have a small range (e.g. 10 USDT or 1%)
-        const padding = maxDelta === 0 ? (baseline * 0.01) : (maxDelta * 0.2);
+        const paddingBase = baselineValue === 0 ? (Math.max(10, Math.abs(maxVal) * 0.05)) : (baselineValue * 0.01);
+        const padding = maxDelta === 0 ? paddingBase : (maxDelta * 0.2);
 
-        const yMax = baseline + maxDelta + padding;
-        const yMin = baseline - maxDelta - padding;
+        const yMax = baselineValue + maxDelta + padding;
+        const yMin = baselineValue - maxDelta - padding;
 
         equityChart.options.scales.y.min = yMin;
         equityChart.options.scales.y.max = yMax;
