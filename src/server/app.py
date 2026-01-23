@@ -407,9 +407,19 @@ async def get_symbol_stats(authenticated: bool = Depends(verify_auth)):
     from collections import defaultdict
     
     # Filter trades from current session (cycle >= 1)
+    def get_cycle_num(trade):
+        """Safely get cycle as int, handling string values"""
+        cycle = trade.get('cycle', 0)
+        if isinstance(cycle, str):
+            try:
+                return int(cycle)
+            except (ValueError, TypeError):
+                return 0
+        return cycle or 0
+    
     current_session_trades = [
         trade for trade in global_state.trade_history 
-        if trade.get('cycle', 0) >= 1
+        if get_cycle_num(trade) >= 1
     ]
     
     # Aggregate by symbol
