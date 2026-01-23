@@ -138,8 +138,8 @@ class TriggerDetector:
             breakout_level = prev_3['low'].min()
             price_breakout = curr['close'] < breakout_level
         
-        # 成交量放大1.5倍
-        volume_confirm = volume_ratio > 1.5
+        # 成交量放大1.0倍 (降低阈值以增加触发率)
+        volume_confirm = volume_ratio > 1.0  # 原值: 1.5
         
         detected = price_breakout and volume_confirm
         
@@ -197,13 +197,32 @@ class TriggerDetector:
                 'details': breakout_result,
                 'rvol': rvol
             }
-        else:
-            return {
-                'triggered': False,
-                'pattern_type': None,
-                'details': {},
-                'rvol': rvol
-            }
+        # 🆕 RVOL-only fallback: 当有足够成交量+价格动量时触发
+        elif rvol >= 0.5:
+            # 检查价格动量 (当前K线方向与交易方向一致)
+            if len(df_5m) >= 1:
+                curr = df_5m.iloc[-1]
+                momentum_ok = False
+                if direction == 'long' and curr['close'] > curr['open']:
+                    momentum_ok = True
+                elif direction == 'short' and curr['close'] < curr['open']:
+                    momentum_ok = True
+                
+                if momentum_ok:
+                    log.info(f"📊 RVOL trigger activated ({direction}): RVOL={rvol:.2f}x with momentum")
+                    return {
+                        'triggered': True,
+                        'pattern_type': 'rvol_momentum',
+                        'details': {'rvol': rvol, 'momentum': True},
+                        'rvol': rvol
+                    }
+        
+        return {
+            'triggered': False,
+            'pattern_type': None,
+            'details': {},
+            'rvol': rvol
+        }
     
     def calculate_rvol(self, df: pd.DataFrame, lookback: int = 10) -> float:
         """
