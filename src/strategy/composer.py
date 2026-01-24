@@ -116,13 +116,30 @@ class StrategyComposer:
         oi_change = oi_fuel.get('oi_change_24h', 0) or 0
         result['oi_change'] = oi_change
         
-        # Trend Logic
+        # Trend Logic - Enhanced with EMA slope fallback
+        # Primary: Strict EMA alignment (close > EMA20 > EMA60)
         if close_1h > ema20_1h > ema60_1h:
             trend_1h = 'long'
         elif close_1h < ema20_1h < ema60_1h:
             trend_1h = 'short'
         else:
-            trend_1h = 'neutral'
+            # 🔧 Fallback: Check EMA20 slope (rising/falling over last 3 bars)
+            # This captures trending markets where price hasn't fully aligned
+            if len(df_1h) >= 5 and 'ema_20' in df_1h.columns:
+                ema20_3ago = df_1h['ema_20'].iloc[-4]
+                ema20_now = ema20_1h
+                ema_slope = (ema20_now - ema20_3ago) / ema20_3ago * 100 if ema20_3ago > 0 else 0
+                
+                # EMA20 rising >0.3% and price above EMA20 = bullish
+                if ema_slope > 0.3 and close_1h > ema20_1h:
+                    trend_1h = 'long'
+                # EMA20 falling <-0.3% and price below EMA20 = bearish
+                elif ema_slope < -0.3 and close_1h < ema20_1h:
+                    trend_1h = 'short'
+                else:
+                    trend_1h = 'neutral'
+            else:
+                trend_1h = 'neutral'
             
         # Layer 1 Checks
         if trend_1h == 'neutral':
@@ -229,32 +246,32 @@ class StrategyComposer:
                              elif trend_1h == 'short' and funding_rate < -0.05:
                                  result['tp_multiplier'] *= 0.7
                               
-                              # ATR-based Dynamic Adjustment
-                              atr_analysis = self.atr_calculator.get_analysis(df_1h)
-                              atr_multiplier = atr_analysis['multiplier']
-                              result['atr_multiplier'] = atr_multiplier
-                              result['atr_pct'] = atr_analysis['atr_pct']
-                              result['volatility'] = atr_analysis['volatility']
+                             # ATR-based Dynamic Adjustment
+                             atr_analysis = self.atr_calculator.get_analysis(df_1h)
+                             atr_multiplier = atr_analysis['multiplier']
+                             result['atr_multiplier'] = atr_multiplier
+                             result['atr_pct'] = atr_analysis['atr_pct']
+                             result['volatility'] = atr_analysis['volatility']
                               
-                              # Apply ATR multiplier
-                              result['tp_multiplier'] *= atr_multiplier
-                              result['sl_multiplier'] *= atr_multiplier
+                             # Apply ATR multiplier
+                             result['tp_multiplier'] *= atr_multiplier
+                             result['sl_multiplier'] *= atr_multiplier
                               
-                              # Minimum Return Filter
-                              expected_tp_pct = 2.5 * result['tp_multiplier']
-                              expected_sl_pct = 1.0 * result['sl_multiplier']
+                             # Minimum Return Filter
+                             expected_tp_pct = 2.5 * result['tp_multiplier']
+                             expected_sl_pct = 1.0 * result['sl_multiplier']
                               
-                              # Check minimum TP (1.5%)
-                              if expected_tp_pct < 1.5:
-                                  result['layer4_pass'] = False
-                                  result['final_action'] = 'wait'
-                                  result['blocking_reason'] = f"Expected TP {expected_tp_pct:.1f}% < minimum 1.5%"
+                             # Check minimum TP (1.5%)
+                             if expected_tp_pct < 1.5:
+                                 result['layer4_pass'] = False
+                                 result['final_action'] = 'wait'
+                                 result['blocking_reason'] = f"Expected TP {expected_tp_pct:.1f}% < minimum 1.5%"
                               
-                              # Check minimum R:R (2:1)
-                              elif expected_sl_pct > 0 and (expected_tp_pct / expected_sl_pct) < 2.0:
-                                  result['layer4_pass'] = False
-                                  result['final_action'] = 'wait'
-                                  result['blocking_reason'] = f"Risk:Reward {expected_tp_pct/expected_sl_pct:.1f}:1 < 2:1"
+                             # Check minimum R:R (2:1)
+                             elif expected_sl_pct > 0 and (expected_tp_pct / expected_sl_pct) < 2.0:
+                                 result['layer4_pass'] = False
+                                 result['final_action'] = 'wait'
+                                 result['blocking_reason'] = f"Risk:Reward {expected_tp_pct/expected_sl_pct:.1f}:1 < 2:1"
 # --- SEMANTIC AGENTS ---
         try:
             # Prepare data objects
