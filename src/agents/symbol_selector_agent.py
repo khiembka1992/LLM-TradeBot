@@ -30,6 +30,86 @@ from src.utils.logger import log
 from src.backtest.engine import BacktestEngine, BacktestConfig
 
 
+def calculate_adx(klines: List[Dict], period: int = 14) -> float:
+    """
+    计算 ADX 趋势强度指标
+    
+    ADX > 25: 强趋势
+    ADX 20-25: 趋势形成中
+    ADX < 20: 无趋势/震荡
+    """
+    if len(klines) < period + 2:
+        return 0.0
+    
+    try:
+        highs = [float(k['high']) for k in klines]
+        lows = [float(k['low']) for k in klines]
+        closes = [float(k['close']) for k in klines]
+        
+        # TR, +DM, -DM 计算
+        tr_list, plus_dm_list, minus_dm_list = [], [], []
+        for i in range(1, len(klines)):
+            high_diff = highs[i] - highs[i-1]
+            low_diff = lows[i-1] - lows[i]
+            
+            tr = max(highs[i] - lows[i], 
+                     abs(highs[i] - closes[i-1]), 
+                     abs(lows[i] - closes[i-1]))
+            
+            plus_dm = high_diff if high_diff > low_diff and high_diff > 0 else 0
+            minus_dm = low_diff if low_diff > high_diff and low_diff > 0 else 0
+            
+            tr_list.append(tr)
+            plus_dm_list.append(plus_dm)
+            minus_dm_list.append(minus_dm)
+        
+        if len(tr_list) < period:
+            return 0.0
+        
+        # Wilder's smoothing
+        def smooth(values, period):
+            if len(values) < period:
+                return []
+            result = [sum(values[:period])]
+            for v in values[period:]:
+                result.append(result[-1] - result[-1]/period + v)
+            return result
+        
+        atr = smooth(tr_list, period)
+        if not atr:
+            return 0.0
+            
+        smoothed_plus_dm = smooth(plus_dm_list, period)
+        smoothed_minus_dm = smooth(minus_dm_list, period)
+        
+        if not smoothed_plus_dm or not smoothed_minus_dm:
+            return 0.0
+        
+        # +DI, -DI
+        plus_di = [(pdm / atr[i] * 100) if atr[i] > 0 else 0 
+                   for i, pdm in enumerate(smoothed_plus_dm)]
+        minus_di = [(mdm / atr[i] * 100) if atr[i] > 0 else 0 
+                    for i, mdm in enumerate(smoothed_minus_dm)]
+        
+        # DX
+        dx = []
+        for i in range(len(plus_di)):
+            di_sum = plus_di[i] + minus_di[i]
+            if di_sum > 0:
+                dx.append(abs(plus_di[i] - minus_di[i]) / di_sum * 100)
+            else:
+                dx.append(0)
+        
+        # ADX = smoothed DX
+        if len(dx) >= period:
+            adx = sum(dx[-period:]) / period
+            return round(adx, 1)
+        return 0.0
+        
+    except Exception as e:
+        return 0.0
+
+
 class SymbolSelectorAgent:
     """
     Automated symbol selection based on backtest performance (AUTO3)
@@ -59,6 +139,7 @@ class SymbolSelectorAgent:
     AUTO1_THRESHOLD_PCT = 0.8
     AUTO1_INTERVAL = "1m"
     AUTO1_VOLUME_RATIO_THRESHOLD = 1.2
+    AUTO1_MIN_ADX = 20  # 最小 ADX 要求（>20 = 有趋势，<20 = 震荡）
     
     def __init__(
         self,
@@ -140,6 +221,7 @@ class SymbolSelectorAgent:
         client = BinanceClient()
 
         results = []
+        skipped_low_adx = []  # 记录因 ADX 低而跳过的币种
         for symbol in symbols:
             try:
                 klines = client.get_klines(symbol, interval, limit=limit)
@@ -156,15 +238,36 @@ class SymbolSelectorAgent:
                 recent_volume = sum(k.get('volume', 0.0) for k in recent)
                 prev_volume = sum(k.get('volume', 0.0) for k in previous) if previous else 0.0
                 volume_ratio = (recent_volume / prev_volume) if prev_volume > 0 else 1.0
-                score = abs(change_pct) * volume_ratio
+                
+                # 🆕 获取 1h K线计算 ADX 趋势强度
+                try:
+                    klines_1h = client.get_klines(symbol, "1h", limit=50)
+                    adx = calculate_adx(klines_1h, period=14)
+                except Exception:
+                    adx = 0.0
+                
+                # 🆕 过滤无趋势币种 (ADX < 20)
+                if adx < self.AUTO1_MIN_ADX:
+                    skipped_low_adx.append(f"{symbol}(ADX={adx:.0f})")
+                    continue
+                
+                # 🆕 ADX 增强评分: 动量 × 成交量 × ADX增强因子
+                adx_boost = 1.0 + max(0, (adx - 20)) / 50  # ADX=20→1.0, ADX=50→1.6
+                score = abs(change_pct) * volume_ratio * adx_boost
+                
                 results.append({
                     "symbol": symbol,
                     "change_pct": change_pct,
                     "volume_ratio": volume_ratio,
+                    "adx": adx,
                     "score": score
                 })
             except Exception as e:
                 log.warning(f"⚠️ AUTO1 skip {symbol}: {e}")
+        
+        # 🆕 记录被 ADX 过滤的币种
+        if skipped_low_adx:
+            log.info(f"📊 AUTO1 跳过低趋势币种 (ADX<{self.AUTO1_MIN_ADX}): {', '.join(skipped_low_adx[:5])}{'...' if len(skipped_low_adx) > 5 else ''}")
 
         if not results:
             fallback = symbols[0] if symbols else self.FALLBACK_SYMBOLS[0]
@@ -207,15 +310,17 @@ class SymbolSelectorAgent:
             magnitude = abs(entry["change_pct"])
             direction = "UP" if entry["change_pct"] >= 0 else "DOWN"
             vol_ratio = entry.get("volume_ratio", 1.0)
+            adx_val = entry.get("adx", 0)
             vol_text = f"VOL x{vol_ratio:.2f}"
+            adx_text = f"ADX={adx_val:.0f}"
             if strong:
                 log.info(
-                    f"🎯 AUTO1 {label}: {entry['symbol']} ({direction} {entry['change_pct']:+.2f}% | {vol_text})"
+                    f"🎯 AUTO1 {label}: {entry['symbol']} ({direction} {entry['change_pct']:+.2f}% | {vol_text} | {adx_text})"
                 )
             else:
                 log.info(
                     f"ℹ️ AUTO1 {label} weak (<{threshold_pct:.2f}% or VOL<{volume_ratio_threshold:.2f}x): "
-                    f"{entry['symbol']} ({direction} {entry['change_pct']:+.2f}% | {vol_text})"
+                    f"{entry['symbol']} ({direction} {entry['change_pct']:+.2f}% | {vol_text} | {adx_text})"
                 )
 
         if best_up["symbol"] in selected:
