@@ -139,6 +139,7 @@ class RiskAuditAgent:
         action_lower = action.lower() if isinstance(action, str) else 'hold'
         is_long = action_lower in ['long', 'open_long']
         is_short = action_lower in ['short', 'open_short']
+        symbol = decision.get('symbol')
         
         # 0. 如果是hold/wait，直接通过
         if action_lower in ['hold', 'wait']:
@@ -182,6 +183,9 @@ class RiskAuditAgent:
         t_15m = trend_scores.get('trend_15m_score')
         t_5m = trend_scores.get('trend_5m_score')
         sentiment_score = decision.get('sentiment_score')
+        symbol_loss_streak = decision.get('symbol_loss_streak', 0)
+        symbol_recent_pnl = decision.get('symbol_recent_pnl')
+        symbol_recent_trades = decision.get('symbol_recent_trades', 0)
         osc_scores = decision.get('oscillator_scores') or decision.get('oscillator') or {}
         osc_values = [
             osc_scores.get('osc_1h_score'),
@@ -213,6 +217,16 @@ class RiskAuditAgent:
             if confidence < 65:
                 return self._block_decision('total_blocks', "空头信号未达到强共振条件，拦截做空")
             warnings.append("⚠️ 空头共振偏弱，谨慎做空")
+        if is_short and isinstance(symbol_loss_streak, (int, float)) and symbol_loss_streak >= 2:
+            if confidence < 80 and not short_strong_setup:
+                return self._block_decision('total_blocks', f"{symbol}空头连续亏损{int(symbol_loss_streak)}次，触发冷却")
+            warnings.append(f"⚠️ {symbol}空头连续亏损{int(symbol_loss_streak)}次，谨慎做空")
+        if is_short and isinstance(symbol_recent_pnl, (int, float)) and symbol_recent_trades >= 3:
+            loss_threshold = -max(2.0, account_balance * 0.003)
+            if symbol_recent_pnl <= loss_threshold and confidence < 80:
+                return self._block_decision('total_blocks', f"{symbol}近{symbol_recent_trades}单净亏损{symbol_recent_pnl:.2f}，暂停空单")
+            if symbol_recent_pnl < 0:
+                warnings.append(f"⚠️ {symbol}近{symbol_recent_trades}单净亏损{symbol_recent_pnl:.2f}")
         if is_short and regime_name == 'volatile_directionless' and not short_strong_setup:
             if confidence < 70:
                 return self._block_decision('total_blocks', "震荡无方向区间，空头需更高信心")
@@ -229,7 +243,6 @@ class RiskAuditAgent:
             return self._block_decision('total_blocks', f"高波动空头风险过高(ATR {atr_pct:.2f}%)")
         # 🔧 OPTIMIZATION: Relax symbol-specific filters (was blocking all trades)
         # Changed from hard blocks to conditional warnings
-        symbol = decision.get('symbol')
         symbol_upper = str(symbol).upper() if symbol else ""
         
         # FILUSDT: Discourage SHORT but allow with high confidence

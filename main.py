@@ -2229,6 +2229,7 @@ class MultiAgentTradingBot:
             }
             sentiment_data = quant_analysis.get('sentiment', {}) if isinstance(quant_analysis, dict) else {}
             order_params['sentiment_score'] = sentiment_data.get('total_sentiment_score', 0)
+            order_params.update(self._get_symbol_trade_stats(self.current_symbol))
             trend_data = quant_analysis.get('trend', {}) if isinstance(quant_analysis, dict) else {}
             order_params['trend_scores'] = {
                 'trend_1h_score': trend_data.get('trend_1h_score', 0),
@@ -2805,6 +2806,62 @@ class MultiAgentTradingBot:
             'position_pct': position_pct * 100,   # 新增：仓位百分比
             'leverage': self.leverage,
             'confidence': confidence
+        }
+
+    def _get_symbol_trade_stats(self, symbol: str, max_trades: int = 5) -> Dict:
+        """Summarize recent closed trades for symbol to support risk filters."""
+        history = global_state.trade_history or []
+        loss_streak = 0
+        loss_streak_active = True
+        recent_pnl = 0.0
+        recent_count = 0
+        recent_wins = 0
+
+        for trade in history:
+            if trade.get('symbol') != symbol:
+                continue
+
+            pnl = trade.get('pnl')
+            if pnl is None:
+                continue
+
+            status = str(trade.get('status', '')).upper()
+            close_cycle = trade.get('close_cycle', 0)
+            exit_price = trade.get('exit_price', 0)
+            is_closed = (
+                'CLOSED' in status or
+                (isinstance(close_cycle, (int, float)) and close_cycle > 0) or
+                (isinstance(exit_price, (int, float)) and exit_price > 0)
+            )
+            if not is_closed:
+                continue
+
+            try:
+                pnl_value = float(pnl)
+            except Exception:
+                continue
+
+            if loss_streak_active:
+                if pnl_value < 0:
+                    loss_streak += 1
+                else:
+                    loss_streak_active = False
+
+            if recent_count < max_trades:
+                recent_pnl += pnl_value
+                recent_count += 1
+                if pnl_value > 0:
+                    recent_wins += 1
+
+            if not loss_streak_active and recent_count >= max_trades:
+                break
+
+        win_rate = (recent_wins / recent_count) if recent_count > 0 else None
+        return {
+            'symbol_loss_streak': loss_streak,
+            'symbol_recent_pnl': recent_pnl,
+            'symbol_recent_trades': recent_count,
+            'symbol_win_rate': win_rate
         }
     
     def _get_account_balance(self) -> float:
