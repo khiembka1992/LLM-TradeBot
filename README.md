@@ -176,6 +176,59 @@ Before you start, make sure you have:
 
 ---
 
+### 🧠 LLM Configuration (Multi-Provider Support)
+
+The bot supports **5 LLM providers**. Configure via environment variables or Dashboard Settings:
+
+#### Supported Providers
+
+| Provider | Model | Cost | Speed | Get API Key |
+|----------|-------|------|-------|-------------|
+| **DeepSeek** (Recommended) | deepseek-chat | 💰 Low | ⚡ Fast | [platform.deepseek.com](https://platform.deepseek.com) |
+| **OpenAI** | gpt-4o, gpt-4o-mini | 💰💰💰 High | ⚡ Fast | [platform.openai.com](https://platform.openai.com) |
+| **Claude** | claude-3-5-sonnet | 💰💰 Medium | ⚡ Fast | [console.anthropic.com](https://console.anthropic.com) |
+| **Qwen** | qwen-turbo, qwen-plus | 💰 Low | ⚡ Fast | [dashscope.console.aliyun.com](https://dashscope.console.aliyun.com) |
+| **Gemini** | gemini-1.5-pro | 💰 Low | ⚡ Fast | [aistudio.google.com](https://aistudio.google.com) |
+
+#### Configuration Methods
+
+**Method 1: Environment Variables** (Recommended)
+
+Edit your `.env` file:
+
+```bash
+# Select LLM Provider (required)
+LLM_PROVIDER=deepseek  # Options: deepseek, openai, claude, qwen, gemini
+
+# Configure API Key for your selected provider
+DEEPSEEK_API_KEY=sk-xxx     # if using DeepSeek
+OPENAI_API_KEY=sk-xxx       # if using OpenAI
+CLAUDE_API_KEY=sk-xxx       # if using Claude
+QWEN_API_KEY=sk-xxx         # if using Qwen
+GEMINI_API_KEY=xxx          # if using Gemini
+```
+
+**Method 2: Dashboard Settings**
+
+1. Open Dashboard at `http://localhost:8000`
+2. Click **⚙️ Settings** → **API Keys** tab
+3. Select your preferred LLM provider and enter API key
+4. Click **Save** - changes apply on next trading cycle
+
+**Method 3: Config File** (`config.yaml`)
+
+```yaml
+llm:
+  provider: "deepseek"  # or: openai, claude, qwen, gemini
+  model: "deepseek-chat"  # provider-specific model
+  temperature: 0.3
+  max_tokens: 2000
+  api_keys:
+    deepseek: "sk-xxx"
+    openai: "sk-xxx"
+    # ... other providers
+```
+
 ## 📖 Manual Installation (Advanced)
 
 If you prefer manual setup:

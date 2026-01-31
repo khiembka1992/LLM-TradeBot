@@ -106,6 +106,45 @@ cp config.example.yaml config.yaml
 - 杠杆倍数 (leverage)
 - 止损止盈比例 (stop_loss_pct, take_profit_pct)
 
+### 🧠 LLM 配置 (多提供商支持)
+
+本机器人支持 **5 种 LLM 提供商**，可通过环境变量或仪表盘设置进行配置：
+
+#### 支持的提供商
+
+| 提供商 | 模型 | 成本 | 速度 | 获取 API Key |
+|--------|------|------|------|--------------|
+| **DeepSeek** (推荐) | deepseek-chat | 💰 低 | ⚡ 快 | [platform.deepseek.com](https://platform.deepseek.com) |
+| **OpenAI** | gpt-4o, gpt-4o-mini | 💰💰💰 高 | ⚡ 快 | [platform.openai.com](https://platform.openai.com) |
+| **Claude** | claude-3-5-sonnet | 💰💰 中 | ⚡ 快 | [console.anthropic.com](https://console.anthropic.com) |
+| **通义千问** | qwen-turbo, qwen-plus | 💰 低 | ⚡ 快 | [dashscope.console.aliyun.com](https://dashscope.console.aliyun.com) |
+| **Gemini** | gemini-1.5-pro | 💰 低 | ⚡ 快 | [aistudio.google.com](https://aistudio.google.com) |
+
+#### 配置方法
+
+**方法 1：环境变量** (推荐)
+
+编辑 `.env` 文件：
+
+```bash
+# 选择 LLM 提供商 (必填)
+LLM_PROVIDER=deepseek  # 可选: deepseek, openai, claude, qwen, gemini
+
+# 配置对应提供商的 API Key
+DEEPSEEK_API_KEY=sk-xxx     # 使用 DeepSeek 时
+OPENAI_API_KEY=sk-xxx       # 使用 OpenAI 时
+CLAUDE_API_KEY=sk-xxx       # 使用 Claude 时
+QWEN_API_KEY=sk-xxx         # 使用通义千问时
+GEMINI_API_KEY=xxx          # 使用 Gemini 时
+```
+
+**方法 2：仪表盘设置**
+
+1. 打开仪表盘 `http://localhost:8000`
+2. 点击 **⚙️ 设置** → **API Keys** 选项卡
+3. 选择 LLM 提供商并输入 API Key
+4. 点击 **保存** - 下一交易周期生效
+
 #### 4. 启动 Web 仪表盘 (推荐)
 
 ![Dashboard Preview](./docs/dashboard_preview_new.png)
