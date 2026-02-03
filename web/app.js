@@ -4764,7 +4764,7 @@ function renderTradeHistory(trades) {
             const draft = draftInputs[def.id];
             const base = agentSettings.agents[def.id] || { params: {}, system_prompt: '' };
             const paramsRaw = draft?.paramsText ?? JSON.stringify(base.params || {}, null, 2);
-            const promptRaw = draft?.promptText ?? base.system_prompt || '';
+            const promptRaw = (draft?.promptText ?? base.system_prompt) || '';
             let parsedParams = {};
             if (paramsRaw && paramsRaw.trim()) {
                 try {
