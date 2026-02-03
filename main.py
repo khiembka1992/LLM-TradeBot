@@ -1420,6 +1420,7 @@ class MultiAgentTradingBot:
             async def reflection_task_wrapper():
                 total_trades = len(global_state.trade_history)
                 if self.reflection_agent and self.reflection_agent.should_reflect(total_trades):
+                    global_state.add_agent_message("reflection_agent", "🔍 Reflecting on recent trade performance...", level="info")
                     trades_to_analyze = global_state.trade_history[-10:]
                     res = await self.reflection_agent.generate_reflection(trades_to_analyze)
                     # --- Post Reflection Agent Results Immediately ---
@@ -2062,6 +2063,8 @@ class MultiAgentTradingBot:
                 if llm_enabled:
                     if not (hasattr(self, '_headless_mode') and self._headless_mode):
                         print("[Step 3/5] 🧠 DeepSeek LLM - Making decision...")
+
+                    global_state.add_agent_message("decision_core", "🧠 DeepSeek LLM is weighing options...", level="info")
 
                     # Build Context with POSITION INFO
                     market_context_text = self._build_market_context(
