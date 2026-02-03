@@ -2002,9 +2002,13 @@ class MultiAgentTradingBot:
                 decision_source = 'forced_exit'
                 decision_payload = forced_exit
                 global_state.add_log(f"[🧯 FORCED EXIT] {forced_exit.get('reasoning', 'Forced close')}")
+                try:
+                    conf_val = float(decision_payload.get('confidence', 0) or 0)
+                except (TypeError, ValueError):
+                    conf_val = 0.0
                 global_state.add_agent_message(
                     "decision_core",
-                    f"Action: {decision_payload.get('action', '').upper()} | Conf: {decision_payload.get('confidence', 0)}% | Reason: {decision_payload.get('reasoning', '')[:100]}... | Source: FORCED",
+                    f"Action: {decision_payload.get('action', '').upper()} | Conf: {conf_val:.1f}% | Reason: {decision_payload.get('reasoning', '')[:100]}... | Source: FORCED",
                     level="warning"
                 )
             else:
@@ -2054,9 +2058,13 @@ class MultiAgentTradingBot:
                         'bearish_reasons': bear_reason
                     }
                 }
+                try:
+                    conf_val = float(decision_payload.get('confidence', 0) or 0)
+                except (TypeError, ValueError):
+                    conf_val = 0.0
                 global_state.add_agent_message(
                     "decision_core",
-                    f"Action: {decision_payload.get('action').upper()} | Conf: {decision_payload.get('confidence')}% | Reason: {decision_payload.get('reasoning')[:100]}... | Source: FAST",
+                    f"Action: {decision_payload.get('action').upper()} | Conf: {conf_val:.1f}% | Reason: {decision_payload.get('reasoning')[:100]}... | Source: FAST",
                     level="info"
                 )
             elif not forced_exit:
@@ -2104,9 +2112,13 @@ class MultiAgentTradingBot:
                     )
 
                     # Post Decision to Chatroom
+                    try:
+                        conf_val = float(decision_payload.get('confidence', 0) or 0)
+                    except (TypeError, ValueError):
+                        conf_val = 0.0
                     global_state.add_agent_message(
                         "decision_core",
-                        f"Action: {decision_payload.get('action').upper()} | Conf: {decision_payload.get('confidence')}% | Reason: {decision_payload.get('reasoning')[:100]}...",
+                        f"Action: {decision_payload.get('action').upper()} | Conf: {conf_val:.1f}% | Reason: {decision_payload.get('reasoning')[:100]}...",
                         level="info"
                     )
                 else:
@@ -2142,9 +2154,13 @@ class MultiAgentTradingBot:
                             'bearish_reasons': 'LLM disabled'
                         }
                     }
+                    try:
+                        conf_val = float(decision_payload.get('confidence', 0) or 0)
+                    except (TypeError, ValueError):
+                        conf_val = 0.0
                     global_state.add_agent_message(
                         "decision_core",
-                        f"Action: {decision_payload.get('action').upper()} | Conf: {decision_payload.get('confidence')}% | Reason: {decision_payload.get('reasoning')[:100]}... | Source: RULE",
+                        f"Action: {decision_payload.get('action').upper()} | Conf: {conf_val:.1f}% | Reason: {decision_payload.get('reasoning')[:100]}... | Source: RULE",
                         level="info"
                     )
 

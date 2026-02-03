@@ -2706,6 +2706,24 @@ function updateAgentFramework(system, decision, agents) {
         const sig = lastMsg ? `${messages.length}|${lastMsg.timestamp}|${lastMsg.agent}|${lastMsg.content}` : `${messages.length}`;
         if (chatContainer.dataset.lastSig === sig) return;
 
+        const translateChatText = (text) => {
+            if (lang === 'zh' || !text) return text;
+            let out = String(text);
+            const rules = [
+                { re: /加权得分/g, out: 'Weighted score' },
+                { re: /周期对齐/g, out: 'Alignment' },
+                { re: /多周期分歧/g, out: 'Misaligned' },
+                { re: /等待1h确认/g, out: 'Waiting for 1h confirmation' },
+                { re: /多头/g, out: 'bullish' },
+                { re: /空头/g, out: 'bearish' },
+                { re: /趋势/g, out: 'trend' }
+            ];
+            rules.forEach(({ re, out: rep }) => {
+                out = out.replace(re, rep);
+            });
+            return out;
+        };
+
         chatContainer.innerHTML = '';
         messages.forEach(msg => {
             const bubble = document.createElement('div');
@@ -2713,13 +2731,14 @@ function updateAgentFramework(system, decision, agents) {
 
             const agentName = titleMap[lang]?.[msg.agent] || msg.agent.replace('_', ' ').toUpperCase();
             const timeStr = msg.timestamp ? (msg.timestamp.includes(' ') ? msg.timestamp.split(' ')[1] : msg.timestamp) : '--:--:--';
+            const content = translateChatText(msg.content);
 
             bubble.innerHTML = `
                 <div class="chat-header">
                     <span class="chat-agent-name">${agentName}</span>
                     <span class="chat-timestamp">${timeStr}</span>
                 </div>
-                <div class="chat-content">${msg.content}</div>
+                <div class="chat-content">${content}</div>
             `;
             chatContainer.appendChild(bubble);
         });
