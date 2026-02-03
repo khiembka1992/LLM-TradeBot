@@ -120,167 +120,119 @@
 
         <!-- Main Grid -->
         <main class="dashboard-grid">
+            <div class="dashboard-layout hero-layout">
+                <!-- Left Sidebar: Account & Portfolios -->
+                <aside class="sidebar-left">
+                    <section class="row-charts-account">
+                        <div class="glass-panel card pnl-curve-card">
+                            <h2 data-i18n="section.balance_curve">📈 Balance</h2>
+                            <div class="pnl-metrics-compact">
+                                <div class="pnl-metric">
+                                    <span class="stat-label">Initial</span>
+                                    <span class="stat-value" id="account-realtime-initial">$1,000</span>
+                                </div>
+                                <div class="pnl-metric">
+                                    <span class="stat-label">Current</span>
+                                    <span class="stat-value" id="account-realtime-balance">$0</span>
+                                </div>
+                                <div class="pnl-metric">
+                                    <span class="stat-label">PnL</span>
+                                    <span id="acc-pnl" class="stat-value">$0.00</span>
+                                </div>
+                                <div class="pnl-metric">
+                                    <span class="stat-label">PnL%</span>
+                                    <span id="account-total-pnl-pct" class="stat-value">0%</span>
+                                </div>
+                            </div>
+                            <div class="pnl-chart-wrapper-compact">
+                                <canvas id="equityChart" data-chart-mode="equity"></canvas>
+                            </div>
+                        </div>
+                    </section>
+                </aside>
 
-            <!-- Row 0: K-Line Chart (Left) + Account Summary (Right) -->
-            <section class="row-charts-account"
-                style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px; min-height: 360px;">
-                <!-- K-Line Chart -->
-                <div class="glass-panel card kline-card">
-                    <h2>📈 K-Line Chart</h2>
-                    <div class="kline-container-wrapper">
-                        <div id="tradingview-widget" class="tradingview-widget-container">
-                            <!-- TradingView Widget loads here -->
+                <!-- Center Hero: Agent Chatroom -->
+                <section class="hero-center row-agent-framework">
+                    <div class="glass-panel card agent-framework-card hero-chatroom-card">
+                        <div class="card-header framework-header">
+                            <div class="framework-title-block">
+                                <h2 class="framework-title">🤖 Agent Chatroom</h2>
+                                <p class="framework-subtitle" data-i18n="framework.subtitle">Strategic Debate & Decision
+                                    Hub</p>
+                            </div>
+                            <div class="framework-controls">
+                                <span id="framework-cycle" class="cycle-badge">Cycle #0</span>
+                                <span id="current-symbol-display" class="current-symbol-badge">
+                                    📊 <span id="symbol-display-text">--</span>
+                                </span>
+                                <button id="btn-llm-toggle" class="llm-toggle-btn" type="button">LLM: OFF</button>
+                            </div>
                         </div>
-                    </div>
-                </div>
-
-                <!-- Real-time PnL Curve -->
-                <div class="glass-panel card pnl-curve-card">
-                    <h2 data-i18n="section.balance_curve">📈 Real-time Balance Curve</h2>
-                    <div class="pnl-metrics">
-                        <div class="pnl-metric">
-                            <span class="stat-label" data-i18n="account.initial_balance">Initial Balance</span>
-                            <span class="stat-value" id="account-realtime-initial">$1,000.00</span>
-                        </div>
-                        <div class="pnl-metric">
-                            <span class="stat-label" data-i18n="account.current_balance">Current Balance</span>
-                            <span class="stat-value" id="account-realtime-balance">$0.00</span>
-                        </div>
-                        <div class="pnl-metric">
-                            <span class="stat-label" data-i18n="account.pnl_amount">PnL Amount</span>
-                            <span class="stat-value" id="acc-pnl">$0.00</span>
-                        </div>
-                        <div class="pnl-metric">
-                            <span class="stat-label" data-i18n="account.pnl_pct">PnL %</span>
-                            <span class="stat-value" id="account-total-pnl-pct">0.00%</span>
-                        </div>
-                    </div>
-                    <div class="pnl-chart-wrapper">
-                        <canvas id="equityChart" data-chart-mode="equity"></canvas>
-                    </div>
-                </div>
-            </section>
-
-
-            <!-- Row 1: Complete Agent Framework Visualization -->
-            <section class="row-agent-framework">
-                <div class="glass-panel card agent-framework-card">
-                    <div class="card-header framework-header">
-                        <div class="framework-title-block">
-                            <h2 class="framework-title">🤖 Multi-Agent Chatroom</h2>
-                            <p class="framework-subtitle" data-i18n="framework.subtitle">Agents report → Decision agent concludes</p>
-                        </div>
-                        <div class="framework-controls">
-                            <span id="framework-cycle" class="cycle-badge">Cycle #0</span>
-                            <span id="current-symbol-display" class="current-symbol-badge"
-                                title="AUTO1 selected symbol">
-                                📊 <span id="symbol-display-text">--</span>
-                            </span>
-                            <button id="btn-llm-toggle" class="llm-toggle-btn" type="button">LLM: OFF</button>
-                        </div>
-                    </div>
-
-                    <!-- Chatroom-only layout -->
-                    <div class="agent-framework-layout chatroom-only">
-                        <div class="chatroom-panel full">
-                            <h3 class="chatroom-title">
-                                💬 <span data-i18n="framework.chatroom">Agent Chatroom</span>
-                            </h3>
-                            <div class="chatroom-container">
-                                <div id="chatroom-messages" class="chatroom-messages">
-                                    <div class="chatroom-empty">
-                                        <div class="icon">💬</div>
-                                        <p data-i18n="framework.chatroom.empty">Waiting for agents to start...</p>
-                                    </div>
+                        <div class="chatroom-container hero-scroller">
+                            <div id="chatroom-messages" class="chatroom-messages">
+                                <div class="chatroom-empty">
+                                    <div class="icon">💬</div>
+                                    <p data-i18n="framework.chatroom.empty">Initializing neural pathways...</p>
                                 </div>
                             </div>
                         </div>
-                    </div> <!-- End agent-framework-layout -->
-                </div> <!-- End agent-framework-card -->
-    </section>
+                    </div>
+                </section>
 
-    <!-- Row 2.5: Trade History (Full Width) -->
-    <section class="row-trades">
-        <div class="glass-panel card trade-table-card">
-            <h2 data-i18n="section.trades">📜 Trade History</h2>
-            <div class="table-container">
-                <table id="trade-table">
-                    <!-- 列宽定义 - 10列 -->
-                    <colgroup>
-                        <col style="width: 80px;"> <!-- Time -->
-                        <col style="width: 90px;"> <!-- Open -->
-                        <col style="width: 90px;"> <!-- Close -->
-                        <col style="width: 100px;"> <!-- Symbol -->
-                        <col style="width: 90px;"> <!-- Direction -->
-                        <col style="width: 110px;"> <!-- Entry Price -->
-                        <col style="width: 110px;"> <!-- Pos Value -->
-                        <col style="width: 110px;"> <!-- Exit Price -->
-                        <col style="width: 100px;"> <!-- PnL -->
-                        <col style="width: 90px;"> <!-- PnL % -->
-                    </colgroup>
-                    <thead>
-                        <tr>
-                            <th title="交易记录时间" data-i18n="trade.time">Time</th>
-                            <th title="开仓周期" data-i18n="trade.open">Open</th>
-                            <th title="平仓周期" data-i18n="trade.close">Close</th>
-                            <th title="交易对" data-i18n="trade.symbol">Symbol</th>
-                            <th title="开仓方向" data-i18n="trade.direction">Direction</th>
-                            <th title="开仓价格" data-i18n="trade.entry">Entry Price</th>
-                            <th title="持仓金额 (含杠杆)" data-i18n="trade.posvalue">Pos Value</th>
-                            <th title="平仓价格" data-i18n="trade.exit">Exit Price</th>
-                            <th title="盈亏金额" data-i18n="trade.pnl">PnL</th>
-                            <th title="盈亏比例" data-i18n="trade.pnlpct">PnL %</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <!-- JS Populated -->
-                    </tbody>
-                </table>
+                <!-- Right Sidebar: Performance & Stats -->
+                <aside class="sidebar-right">
+                    <section class="glass-panel card ranking-card">
+                        <h2 data-i18n="section.symbol_ranking">🏆 Ranking</h2>
+                        <div class="ranking-compact-container">
+                            <table id="symbol-ranking-table" class="compact-table">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Symbol</th>
+                                        <th class="text-right">PnL</th>
+                                        <th class="text-right">Win%</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="symbol-ranking-body">
+                                    <tr>
+                                        <td colspan="4" class="text-center">Loading...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+                </aside>
+            </div> <!-- End hero-layout -->
+
+            <!-- Bottom: Detailed Records -->
+            <div class="bottom-detail-panels">
+                <section class="row-trades">
+                    <div class="glass-panel card trade-table-card">
+                        <div class="section-header-compact">
+                            <h2 data-i18n="section.trades">📜 Trade Records</h2>
+                        </div>
+                        <div class="table-container mini-records">
+                            <table id="trade-table">
+                                <thead>
+                                    <tr>
+                                        <th data-i18n="trade.time">Time</th>
+                                        <th data-i18n="trade.symbol">Symbol</th>
+                                        <th data-i18n="trade.direction">Side</th>
+                                        <th data-i18n="trade.entry">Entry</th>
+                                        <th data-i18n="trade.exit">Exit</th>
+                                        <th data-i18n="trade.pnl">PnL</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
             </div>
-        </div>
-    </section>
+        </main>
 
-    <!-- Symbol Performance Ranking -->
-    <section class="glass-panel" style="margin-top: 20px;">
-        <div class="section-header">
-            <h3 style="display: flex; align-items: center; gap: 8px;">
-                <span>🏆</span>
-                <span data-i18n="section.symbol_ranking">Symbol Performance Ranking</span>
-                <span id="symbol-ranking-badge" style="font-size: 0.7em; color: #718096; font-weight: normal;">(Current
-                    Session)</span>
-            </h3>
-        </div>
-        <div style="overflow-x: auto;">
-            <table id="symbol-ranking-table" style="width: 100%; border-collapse: collapse; font-size: 0.9em;">
-                <thead>
-                    <tr style="background: rgba(255,255,255,0.05); text-align: left;">
-                        <th style="padding: 12px 16px; color: #90cdf4;">#</th>
-                        <th style="padding: 12px 16px; color: #90cdf4;" data-i18n="table.symbol">Symbol</th>
-                        <th style="padding: 12px 16px; color: #90cdf4; text-align: right;" data-i18n="table.pnl">PnL ($)
-                        </th>
-                        <th style="padding: 12px 16px; color: #90cdf4; text-align: right;"
-                            data-i18n="table.return_rate">Return (%)</th>
-                        <th style="padding: 12px 16px; color: #90cdf4; text-align: center;" data-i18n="table.trades">
-                            Trades</th>
-                        <th style="padding: 12px 16px; color: #90cdf4; text-align: center;" data-i18n="table.win_rate">
-                            Win Rate</th>
-                    </tr>
-                </thead>
-                <tbody id="symbol-ranking-body">
-                    <tr>
-                        <td colspan="6" style="padding: 20px; text-align: center; color: #718096;">Loading...
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-        <div id="symbol-ranking-summary"
-            style="margin-top: 12px; padding: 12px; background: rgba(0,0,0,0.2); border-radius: 6px; font-size: 0.85em; color: #a0aec0;">
-            <!-- Summary will be populated by JS -->
-        </div>
-    </section>
-
-    </main>
+    </div> <!-- End main-content -->
+    </div> <!-- End dashboard-layout -->
     </main>
     </div>
     <!-- Settings Modal -->
@@ -1213,63 +1165,6 @@
         })();
     </script>
 
-    <!-- TradingView Widget Initialization -->
-    <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-    <script>
-        window.loadTradingViewChart = function (symbol) {
-            symbol = symbol || 'BTCUSDT';
-            if (window.lastChartSymbol === symbol) {
-                return;
-            }
-            // Convert to TradingView format: BINANCE:BTCUSDT
-            const tvSymbol = 'BINANCE:' + symbol;
-            const container = document.getElementById('tradingview-widget');
-            if (!container) return;
-
-            // Clear previous widget
-            container.innerHTML = '';
-
-            // Create new widget
-            new TradingView.widget({
-                "autosize": true,
-                "symbol": tvSymbol,
-                "interval": "15",
-                "timezone": "Etc/UTC",
-                "theme": "dark",
-                "style": "1",
-                "locale": "en",
-                "toolbar_bg": "#0B0E11",
-                "enable_publishing": false,
-                "hide_top_toolbar": false,
-                "hide_legend": false,
-                "save_image": false,
-                "container_id": "tradingview-widget",
-                "hide_side_toolbar": true,
-                "allow_symbol_change": true,
-                "studies": [
-                    "MAExp@tv-basicstudies",
-                    "RSI@tv-basicstudies"
-                ],
-                "backgroundColor": "rgba(11, 14, 17, 1)",
-                "gridColor": "rgba(255, 255, 255, 0.05)"
-            });
-
-            window.chartInitialized = true;
-            window.lastChartSymbol = symbol;
-            console.log('📈 TradingView chart loaded:', tvSymbol);
-        };
-
-        // Auto-load chart on page load
-        document.addEventListener('DOMContentLoaded', function () {
-            setTimeout(function () {
-                if (window.activeSymbols && window.activeSymbols.length > 0) {
-                    loadTradingViewChart(window.activeSymbols[0]);
-                } else {
-                    loadTradingViewChart('BTCUSDT');
-                }
-            }, 1000);
-        });
-    </script>
 </body>
 
 </html>

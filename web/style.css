@@ -644,6 +644,27 @@ body {
     min-height: 0;
 }
 
+.dashboard-layout {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    gap: 20px;
+    align-items: start;
+}
+
+.left-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    min-width: 0;
+}
+
+.main-content {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    min-width: 0;
+}
+
 .card {
     padding: 16px 20px;
     display: flex;
@@ -3456,37 +3477,13 @@ tr:first-child td {
 }
 
 /* ========================================
-   K-Line + Account Summary Row (Top)
+   Balance + Chatroom Row (Top)
    ======================================== */
 
 .row-charts-account {
     grid-column: 1 / -1;
     margin-bottom: 20px;
-}
-
-.kline-card {
-    display: flex;
-    flex-direction: column;
-}
-
-.kline-card h2 {
-    margin: 0 0 12px 0;
-    font-size: 1rem;
-    color: var(--nofx-gold);
-}
-
-.kline-container-wrapper {
-    flex: 1;
-    min-height: 280px;
-    background: rgba(0, 0, 0, 0.3);
-    border-radius: 8px;
-    overflow: hidden;
-}
-
-.tradingview-widget-container {
-    width: 100%;
-    height: 100%;
-    min-height: 280px;
+    min-height: 0;
 }
 
 .account-info-card h2 {
@@ -3785,10 +3782,6 @@ tr:first-child td {
         grid-template-columns: 1fr !important;
     }
 
-    .kline-container-wrapper {
-        min-height: 200px;
-    }
-
     .account-stats-grid {
         grid-template-columns: 1fr;
     }
@@ -3976,6 +3969,18 @@ tr:first-child td {
 }
 
 @media (max-width: 1200px) {
+    .dashboard-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .left-sidebar {
+        order: 0;
+    }
+
+    .main-content {
+        order: 1;
+    }
+
     .framework-grid {
         grid-template-columns: 1fr;
     }

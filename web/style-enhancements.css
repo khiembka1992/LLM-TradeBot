@@ -369,26 +369,98 @@ textarea:focus {
     }
 }
 
-/* 20. [NEW] Multi-Agent Chatroom Styles */
+/* 20. [NEW] Multi-Agent Mission Control Layout */
+.hero-layout {
+    display: grid;
+    grid-template-columns: 280px 1fr 320px;
+    gap: 20px;
+    height: calc(100vh - 160px);
+    min-height: 700px;
+    align-items: stretch;
+}
+
+.hero-center {
+    display: flex;
+    flex-direction: column;
+}
+
+.hero-chatroom-card {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 0 !important;
+}
+
+.hero-scroller {
+    flex: 1;
+    max-height: none !important;
+}
+
+/* Sidebar Utilities */
+.sidebar-left,
+.sidebar-right {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+/* Compact Metrics & Ranking */
+.pnl-metrics-compact {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 15px;
+}
+
+.pnl-chart-wrapper-compact {
+    height: 180px;
+}
+
+.ranking-compact-container {
+    overflow-y: auto;
+    flex: 1;
+}
+
+.compact-table {
+    width: 100%;
+    font-size: 0.85rem;
+}
+
+.compact-table th {
+    color: #718096;
+    text-transform: uppercase;
+    font-size: 0.7rem;
+    padding: 8px;
+}
+
+.compact-table td {
+    padding: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Bottom Panel */
+.bottom-detail-panels {
+    margin-top: 20px;
+}
+
+.mini-records {
+    max-height: 250px;
+}
+
+.section-header-compact h2 {
+    font-size: 1.2rem;
+    margin-bottom: 10px;
+}
+
+/* Existing Chatroom Overrides */
 .chatroom-container {
     display: flex;
     flex-direction: column;
-    height: 100%;
-    max-height: 600px;
     background: rgba(0, 0, 0, 0.4);
     border-radius: 12px;
     border: 1px solid rgba(255, 255, 255, 0.1);
     box-shadow: inset 0 4px 12px rgba(0, 0, 0, 0.4);
     overflow: hidden;
-}
-
-.agent-framework-layout.chatroom-only {
-    display: flex;
-    width: 100%;
-}
-
-.chatroom-panel.full {
-    width: 100%;
 }
 
 .chatroom-title {
