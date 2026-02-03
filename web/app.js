@@ -2714,6 +2714,15 @@ function updateAgentFramework(system, decision, agents) {
                 { re: /周期对齐/g, out: 'Alignment' },
                 { re: /多周期分歧/g, out: 'Misaligned' },
                 { re: /等待1h确认/g, out: 'Waiting for 1h confirmation' },
+                { re: /震荡市观望/g, out: 'Choppy market wait' },
+                { re: /震荡指标强烈超卖\(([^)]+)\)，避免追低做空/g, out: 'Strong oversold ($1), avoid chasing short' },
+                { re: /震荡指标强烈超买\(([^)]+)\)，避免追高做多/g, out: 'Strong overbought ($1), avoid chasing long' },
+                { re: /震荡指标/g, out: 'Oscillator' },
+                { re: /强烈超卖/g, out: 'strongly oversold' },
+                { re: /强烈超买/g, out: 'strongly overbought' },
+                { re: /避免追低做空/g, out: 'avoid chasing short' },
+                { re: /避免追高做多/g, out: 'avoid chasing long' },
+                { re: /位置=/g, out: 'Pos=' },
                 { re: /多头/g, out: 'bullish' },
                 { re: /空头/g, out: 'bearish' },
                 { re: /趋势/g, out: 'trend' }
@@ -2721,11 +2730,19 @@ function updateAgentFramework(system, decision, agents) {
             rules.forEach(({ re, out: rep }) => {
                 out = out.replace(re, rep);
             });
+            if (/[\u4e00-\u9fa5]/.test(out)) {
+                out = 'Details available (non-English content hidden)';
+            }
             return out;
         };
 
         chatContainer.innerHTML = '';
-        messages.forEach(msg => {
+        const currentCycle = Number(document.getElementById('framework-cycle')?.textContent?.replace(/\D/g, '') || '');
+        const visibleMessages = Number.isFinite(currentCycle)
+            ? messages.filter(m => Number(m.cycle) === currentCycle)
+            : messages;
+
+        visibleMessages.forEach(msg => {
             const bubble = document.createElement('div');
             bubble.className = `chat-bubble ${msg.agent} chat-level-${msg.level || 'info'}`;
 
