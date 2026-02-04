@@ -18,16 +18,23 @@ class BinanceClient:
         self.api_key = config.binance.get('api_key')
         self.api_secret = config.binance.get('api_secret')
         self.testnet = config.binance.get('testnet', True)
+        self.offline = False
         
         # 初始化客户端
-        if self.testnet:
-            self.client = Client(
-                self.api_key,
-                self.api_secret,
-                testnet=True
-            )
-        else:
-            self.client = Client(self.api_key, self.api_secret)
+        try:
+            if self.testnet:
+                self.client = Client(
+                    self.api_key,
+                    self.api_secret,
+                    testnet=True
+                )
+            else:
+                self.client = Client(self.api_key, self.api_secret)
+        except Exception as e:
+            # Allow dashboard to start even if Binance is unreachable
+            self.client = None
+            self.offline = True
+            log.warning(f"⚠️ Binance client init failed (offline mode): {e}")
         
         self.ws_manager: Optional[ThreadedWebsocketManager] = None
         
@@ -50,6 +57,8 @@ class BinanceClient:
         Returns:
             K线数据列表
         """
+        if self.client is None:
+            raise ConnectionError("Binance client unavailable (offline mode)")
         try:
             # Build params
             params = {
@@ -93,6 +102,8 @@ class BinanceClient:
     
     def get_ticker_price(self, symbol: str) -> Dict:
         """获取最新价格"""
+        if self.client is None:
+            raise ConnectionError("Binance client unavailable (offline mode)")
         try:
             ticker = self.client.get_symbol_ticker(symbol=symbol)
             return {
@@ -125,6 +136,8 @@ class BinanceClient:
             'quoteVolume': '15.30000000', ...
         }
         """
+        if self.client is None:
+            raise ConnectionError("Binance client unavailable (offline mode)")
         try:
             # get_ticker without symbol returns all tickers
             tickers = self.client.get_ticker() 

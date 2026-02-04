@@ -156,8 +156,7 @@ GEMINI_API_KEY=xxx          # 使用 Gemini 时
 
 #### 4. 启动 Web 仪表盘 (推荐)
 
-![Dashboard Preview](./docs/dashboard_preview_new.png)
-![Live Log Output](./docs/screenshot-20251221-070754.png)
+![Dashboard Preview](./docs/ScreenShot_2026-01-21_003126_160.png)
 本项目内置现代化的实时监控仪表盘 (Web Dashboard)。
 
 ```bash

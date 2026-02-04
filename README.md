@@ -53,14 +53,15 @@ Intelligent Multi-Agent Quantitative Trading Bot based on the **Adversarial Deci
 
 The system uses a **Multi-Layer Agent Architecture** where data flows through specialized agents:
 
-1. **📡 Data Layer**: SymbolSelectorAgent → DataSyncAgent (5m/15m/1h market data)
-2. **📊 Analysis Layer**: QuantAnalystAgent, RegimeDetectorAgent, TriggerDetectorAgent, PositionAnalyzerAgent
-3. **🔮 ML Prediction**: PredictAgent with LightGBM model
-4. **🧠 Semantic Strategy**: TrendAgent (1h) + SetupAgent (15m) + TriggerAgent (5m)
-5. **⚖️ Decision Layer**: DecisionCoreAgent with Bull vs Bear adversarial debate
-6. **🛡️ Risk Audit**: RiskAuditAgent with absolute veto power
-7. **🚀 Execution**: ExecutionEngine manages orders
-8. **🪞 Learning**: ReflectionAgent analyzes trade history for continuous improvement
+1. **📡 Data & Selection**: SymbolSelectorAgent → DataSyncAgent (5m/15m/1h market data)
+2. **📊 Quant Analysis**: QuantAnalystAgent + RegimeDetectorAgent + TriggerDetectorAgent + PositionAnalyzerAgent
+3. **🔮 ML Prediction**: PredictAgent with LightGBM model + AIPredictionFilterAgent
+4. **🧠 Semantic Agents**: TrendAgent (1h), SetupAgent (15m), TriggerAgent (5m) with LLM/Local variants
+5. **🧭 Multi-Period Parser**: Summarizes 1h/15m/5m alignment + four-layer status for Decision Core
+6. **⚖️ Decision Core**: DecisionCoreAgent aggregates multi-agent signals and outputs action/confidence
+7. **🛡️ Risk Audit**: RiskAuditAgent with veto power and auto-corrections
+8. **🚀 Execution**: ExecutionEngine manages orders
+9. **🪞 Reflection**: ReflectionAgent summarizes trade history for continuous improvement
 
 ### Detailed Flowchart
 
@@ -406,17 +407,13 @@ After startup, visit: **<http://localhost:8000>** (or use our [Cloud Hosting](ht
 
 **Dashboard Features**:
 
+- ![Dashboard Preview](./docs/ScreenShot_2026-01-21_003126_160.png)
+
 - **🧪💰 Test/Live Mode Toggle**: Quick switch between paper trading and real trading with visual confirmation
-- **📈 K-Line Chart**: TradingView Lightweight Charts with real-time candlestick updates, auto-synced to current symbol
-- **💰 Account Summary Panel**: Real-time display of wallet balance, available balance, equity, initial capital, PnL, and position details
-- **🤖 Multi-Agent Decision Framework**: Visual flow diagram showing all 15 agents organized by layer:
-  - **📡 Data Layer**: DataSync Agent, Symbol Selector
-  - **📊 Analysis Layer**: Quant Analyst, Regime Detector, Trigger Detector, Position Analyzer, Predict Agent
-  - **🧠 LLM Strategy Layer**: Trend Agent, Trigger Agent, AI Filter
-  - **⚖️ Decision Layer**: Decision Core with Bull/Bear debate visualization
-  - **🛡️ Execution Layer**: Risk Audit, Final Output, Reflection Agent
-- **🎛️ Agent Selection Panel**: Configure optional agents via Settings → Agents tab with checkboxes
-- **📡 Agent Activity Feed**: Real-time event stream showing agent status updates
+- **📈 Real-time Balance Curve**: Fixed initial balance with PnL-driven current balance
+- **💬 Agent Chatroom**: Per-cycle multi-agent outputs with Decision Core final action
+- **🧭 Multi-Period Summary**: Alignment snapshot from 1h/15m/5m signals
+- **🧩 Agent Config Tabs**: Per-agent parameters + optional system prompts
 - **📜 Trade History**: Complete record of all trades with Open/Close cycles and PnL statistics
 - **📋 Live Log Output**: Real-time scrolling logs with agent documentation sidebar, simplified/detailed mode toggle
 
@@ -559,6 +556,7 @@ The system uses a **Four-Layer Strategy Filter** architecture with **17 speciali
 | **🕵️ DataSyncAgent** | The Oracle | Async concurrent fetch of 5m/15m/1h K-lines, ensuring snapshot consistency |
 | **👨‍🔬 QuantAnalystAgent** | The Strategist | Generates trend scores, oscillators, sentiment, and OI Fuel (Volume Proxy) |
 | **🛡️ RiskAuditAgent** | The Guardian | Risk audit with absolute veto power on all trades |
+| **🧭 MultiPeriodParserAgent** | The Summarizer | Multi-period alignment summary for Decision Core |
 
 #### Symbol Selection Layer (Optional)
 
@@ -588,7 +586,7 @@ The system uses a **Four-Layer Strategy Filter** architecture with **17 speciali
 
 | Agent | Role | Responsibility |
 |-------|------|----------------|
-| **⚖️ DecisionCoreAgent** | The Critic | LLM Bull/Bear debate decision engine with confidence scoring |
+| **⚖️ DecisionCoreAgent** | The Critic | Aggregates multi-agent outputs into a final action |
 | **🚀 ExecutionEngine** | The Executor | Precision order execution and state management |
 | **🪞 ReflectionAgent** | The Philosopher | Trade reflection every 10 trades (LLM or Local variant) |
 

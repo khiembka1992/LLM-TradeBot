@@ -4164,8 +4164,9 @@ def start_server():
     """Start FastAPI server in a separate thread"""
     import os
     port = int(os.getenv("PORT", 8000))
-    print(f"\n🌍 Starting Web Dashboard at http://0.0.0.0:{port}")
-    uvicorn.run(app, host="0.0.0.0", port=port, log_level="error")
+    host = os.getenv("HOST", "127.0.0.1")
+    print(f"\n🌍 Starting Web Dashboard at http://{host}:{port}")
+    uvicorn.run(app, host=host, port=port, log_level="error")
 
 # ============================================
 # 主入口
