@@ -793,9 +793,11 @@ async def get_agent_prompts(authenticated: bool = Depends(verify_auth)):
 @app.get("/api/agents/settings")
 async def get_agent_settings(authenticated: bool = Depends(verify_auth)):
     """Get agent configuration parameters and system prompts"""
+    from src.llm.metrics import snapshot as llm_snapshot
     settings = _load_agent_settings()
     return {
         "llm_info": global_state.llm_info,
+        "llm_metrics": llm_snapshot(),
         "agents": settings.get("agents", {})
     }
 
@@ -810,6 +812,11 @@ async def update_agent_settings(data: dict = Body(...), authenticated: bool = De
         "status": "success",
         "agents": settings.get("agents", {})
     }
+
+@app.get("/api/llm/metrics")
+async def get_llm_metrics(authenticated: bool = Depends(verify_auth)):
+    from src.llm.metrics import snapshot as llm_snapshot
+    return {"metrics": llm_snapshot()}
 
 @app.post("/api/config/prompt")
 async def update_prompt_text(data: dict = Body(...), authenticated: bool = Depends(verify_admin)):

@@ -9,6 +9,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, List
 import httpx
+import time
+
+from src.llm.metrics import record_error, record_request, record_success
 
 
 @dataclass
@@ -140,14 +143,19 @@ class BaseLLMClient(ABC):
         last_error = None
         for attempt in range(self.config.max_retries):
             try:
+                record_request(self.PROVIDER, self.model)
+                start_ts = time.time()
                 response = self.client.post(url, json=body, headers=headers)
                 response.raise_for_status()
-                return self._parse_response(response.json())
+                parsed = self._parse_response(response.json())
+                latency_ms = int((time.time() - start_ts) * 1000)
+                record_success(self.PROVIDER, self.model, latency_ms)
+                return parsed
             except httpx.HTTPStatusError as e:
                 last_error = e
+                record_error(self.PROVIDER, self.model, f"HTTP {e.response.status_code}")
                 if e.response.status_code in [429, 500, 502, 503, 504]:
                     # 可重试的 HTTP 错误
-                    import time
                     wait_time = 2 ** attempt
                     print(f"⚠️ LLM HTTP Error {e.response.status_code}, retrying in {wait_time}s (attempt {attempt + 1}/{self.config.max_retries})")
                     time.sleep(wait_time)
@@ -157,16 +165,16 @@ class BaseLLMClient(ABC):
                     ConnectionResetError, ConnectionError, OSError) as e:
                 # 网络连接错误，需要重试
                 last_error = e
-                import time
+                record_error(self.PROVIDER, self.model, type(e).__name__)
                 wait_time = 2 ** attempt
                 print(f"⚠️ LLM Connection Error: {type(e).__name__}, retrying in {wait_time}s (attempt {attempt + 1}/{self.config.max_retries})")
                 time.sleep(wait_time)
                 continue
             except Exception as e:
                 last_error = e
+                record_error(self.PROVIDER, self.model, type(e).__name__)
                 # 其他未知错误，最后一次尝试后抛出
                 if attempt < self.config.max_retries - 1:
-                    import time
                     wait_time = 2 ** attempt
                     print(f"⚠️ LLM Unexpected Error: {type(e).__name__}: {e}, retrying in {wait_time}s")
                     time.sleep(wait_time)
