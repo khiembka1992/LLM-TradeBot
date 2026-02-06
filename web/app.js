@@ -2715,6 +2715,7 @@ function updateAgentFramework(system, decision, agents) {
                 const rulesZh = [
                     { re: /Action:/g, out: '动作:' },
                     { re: /Conf:/g, out: '置信度:' },
+                    { re: /Confidence:/g, out: '置信度:' },
                     { re: /Reason:/g, out: '原因:' },
                     { re: /Source:/g, out: '来源:' },
                     { re: /Weighted score/g, out: '加权得分' },
@@ -2730,23 +2731,45 @@ function updateAgentFramework(system, decision, agents) {
                     { re: /Pos=/g, out: '位置=' },
                     { re: /bullish/g, out: '多头' },
                     { re: /bearish/g, out: '空头' },
-                    { re: /trend/g, out: '趋势' },
+                    { re: /trend/gi, out: '趋势' },
                     { re: /Stance:/g, out: '立场:' },
+                    { re: /Strength:/g, out: '强度:' },
+                    { re: /ADX:/g, out: 'ADX:' },
+                    { re: /OI Fuel:/g, out: 'OI动能:' },
                     { re: /Pattern:/g, out: '形态:' },
                     { re: /RVOL:/g, out: '相对成交量:' },
                     { re: /Trigger:/g, out: '触发:' },
+                    { re: /Mode:/g, out: '模式:' },
+                    { re: /Symbols:/g, out: '币种:' },
+                    { re: /Probability Up:/g, out: '上涨概率:' },
+                    { re: /Analysis Complete/g, out: '分析完成' },
+                    { re: /Insight:/g, out: '洞察:' },
                     { re: /\bFAST\b/g, out: '快速' },
                     { re: /\bFORCED\b/g, out: '强制' },
                     { re: /\bHOLD\b/g, out: '观望' },
+                    { re: /\bWAIT\b/g, out: '等待' },
                     { re: /\bLONG\b/g, out: '做多' },
                     { re: /\bSHORT\b/g, out: '做空' },
+                    { re: /\bOPEN_LONG\b/g, out: '开多' },
+                    { re: /\bOPEN_SHORT\b/g, out: '开空' },
+                    { re: /\bCLOSE_POSITION\b/g, out: '平仓' },
+                    { re: /\bNEUTRAL\b/g, out: '中性' },
+                    { re: /\bERROR\b/g, out: '错误' },
+                    { re: /\bRULE\b/g, out: '规则' },
+                    { re: /\bLLM\b/g, out: '大模型' },
+                    { re: /\bDecision Core\b/g, out: '决策核心' },
+                    { re: /\bRisk Audit\b/g, out: '风险审计' },
+                    { re: /\bTrend Agent\b/g, out: '趋势代理' },
+                    { re: /\bTrigger Agent\b/g, out: '触发代理' },
+                    { re: /\bSetup Agent\b/g, out: '形态代理' },
+                    { re: /\bReflection Agent\b/g, out: '复盘代理' },
                     { re: /Decision/g, out: '决策' }
                 ];
                 rulesZh.forEach(({ re, out: rep }) => {
                     out = out.replace(re, rep);
                 });
-                if (!/[\u4e00-\u9fa5]/.test(out)) {
-                    out = '（英文内容已隐藏，切换为中文模式自动翻译）';
+                if (!out || !out.trim()) {
+                    out = '（内容为空）';
                 }
                 return out;
             }
