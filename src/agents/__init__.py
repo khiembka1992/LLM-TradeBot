@@ -28,6 +28,10 @@ from .predict_agent import PredictAgent, PredictResult
 from .reflection_agent import ReflectionAgent, ReflectionAgentLLM, ReflectionResult
 from .multi_period_agent import MultiPeriodParserAgent
 
+from .trend_agent import TrendAgentLLM
+from .setup_agent import SetupAgentLLM
+from .trigger_agent import TriggerAgentLLM
+
 __all__ = [
     # Framework
     'AgentConfig',
@@ -52,4 +56,7 @@ __all__ = [
     'ReflectionAgentLLM',
     'ReflectionResult',
     'MultiPeriodParserAgent',
+    'TrendAgentLLM',
+    'SetupAgentLLM',
+    'TriggerAgentLLM'
 ]

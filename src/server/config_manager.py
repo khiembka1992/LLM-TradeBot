@@ -32,7 +32,7 @@ class ConfigManager:
         return {
             "api_keys": {
                 "binance_api_key": self._mask_key(env_vars.get('BINANCE_API_KEY', '')),
-                "binance_secret_key": self._mask_key(env_vars.get('BINANCE_SECRET_KEY', '')),
+                "binance_secret_key": self._mask_key(env_vars.get('BINANCE_API_SECRET', '')),
                 "deepseek_api_key": self._mask_key(env_vars.get('DEEPSEEK_API_KEY', '')),
                 "openai_api_key": self._mask_key(env_vars.get('OPENAI_API_KEY', '')),
                 "claude_api_key": self._mask_key(env_vars.get('CLAUDE_API_KEY', '')),
@@ -58,7 +58,7 @@ class ConfigManager:
             # Map frontend keys to .env keys
             key_map = {
                 "binance_api_key": "BINANCE_API_KEY",
-                "binance_secret_key": "BINANCE_SECRET_KEY",
+                "binance_secret_key": "BINANCE_API_SECRET",
                 "deepseek_api_key": "DEEPSEEK_API_KEY",
                 "openai_api_key": "OPENAI_API_KEY",
                 "claude_api_key": "CLAUDE_API_KEY",
