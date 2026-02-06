@@ -30,7 +30,7 @@ chmod +x install.sh
 ```bash
 # Binance API
 BINANCE_API_KEY=your_binance_api_key
-BINANCE_API_SECRET=your_binance_secret_key
+BINANCE_SECRET_KEY=your_binance_secret_key
 BINANCE_TESTNET=true
 
 # LLM API (DeepSeek)

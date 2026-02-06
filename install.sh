@@ -131,7 +131,7 @@ if [ ! -f ".env" ]; then
         print_info "Creating .env file from .env.example..."
         cp .env.example .env
         print_warning "Please edit .env file and add your API keys"
-        print_info "Required keys: BINANCE_API_KEY, BINANCE_API_SECRET, DEEPSEEK_API_KEY"
+        print_info "Required keys: BINANCE_API_KEY, BINANCE_SECRET_KEY, DEEPSEEK_API_KEY"
     else
         print_error ".env.example not found"
         exit 1

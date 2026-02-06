@@ -110,10 +110,10 @@ configure_api_keys() {
     if grep -q "BINANCE_API_KEY=" .env; then
         # macOS 兼容的 sed
         sed -i '' "s/BINANCE_API_KEY=.*/BINANCE_API_KEY=${api_key}/" .env
-        sed -i '' "s/BINANCE_API_SECRET=.*/BINANCE_API_SECRET=${api_secret}/" .env
+        sed -i '' "s/BINANCE_SECRET_KEY=.*/BINANCE_SECRET_KEY=${api_secret}/" .env
     else
         echo "BINANCE_API_KEY=${api_key}" >> .env
-        echo "BINANCE_API_SECRET=${api_secret}" >> .env
+        echo "BINANCE_SECRET_KEY=${api_secret}" >> .env
     fi
     
     print_success "API 密钥已配置到 .env 文件"

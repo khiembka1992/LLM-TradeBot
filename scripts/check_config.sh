@@ -37,12 +37,12 @@ else
     BINANCE_OK=true
 fi
 
-# 检查 BINANCE_API_SECRET
-if [ -z "$BINANCE_API_SECRET" ] || [ "$BINANCE_API_SECRET" = "your_binance_api_secret_here" ]; then
-    echo "❌ BINANCE_API_SECRET 未配置或使用默认值"
+# 检查 BINANCE_SECRET_KEY
+if [ -z "$BINANCE_SECRET_KEY" ] || [ "$BINANCE_SECRET_KEY" = "your_binance_secret_key_here" ]; then
+    echo "❌ BINANCE_SECRET_KEY 未配置或使用默认值"
     BINANCE_OK=false
 else
-    echo "✓ BINANCE_API_SECRET 已配置 (${BINANCE_API_SECRET:0:10}...)"
+    echo "✓ BINANCE_SECRET_KEY 已配置 (${BINANCE_SECRET_KEY:0:10}...)"
 fi
 
 # 检查 DEEPSEEK_API_KEY

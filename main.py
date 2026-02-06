@@ -1127,7 +1127,7 @@ class MultiAgentTradingBot:
             log.info("No accounts.json found, creating default account from .env")
             
             api_key = os.environ.get('BINANCE_API_KEY', '')
-            secret_key = os.environ.get('BINANCE_API_SECRET', '')
+            secret_key = os.environ.get('BINANCE_SECRET_KEY', '')
             testnet = os.environ.get('BINANCE_TESTNET', 'true').lower() == 'true'
             
             if api_key:
