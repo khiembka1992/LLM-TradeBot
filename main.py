@@ -52,7 +52,7 @@ else:
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
 
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Any
 from datetime import datetime
 import json
 import time
@@ -173,14 +173,26 @@ class MultiAgentTradingBot:
                 else:
                     self.symbols = [symbol_str]
 
+        # Normalize legacy AUTO2 -> AUTO1
+        if 'AUTO2' in self.symbols:
+            self.symbols = ['AUTO1' if s == 'AUTO2' else s for s in self.symbols]
+
         # 🔝 AUTO3 Dynamic Resolution (takes priority)
         self.use_auto3 = 'AUTO3' in self.symbols
         if self.use_auto3:
-            self.symbols.remove('AUTO3')
+            self.symbols = [s for s in self.symbols if s not in ('AUTO3', 'AUTO1')]
             # If AUTO3 was the only symbol, add temporary placeholder (will be replaced at startup)
             if not self.symbols:
                 self.symbols = ['FETUSDT']  # Temporary, replaced by AUTO3 selection in main()
             log.info("🔝 AUTO3 mode enabled - Startup backtest will run")
+
+        # AUTO1 Dynamic Selection (runtime)
+        self.use_auto1 = (not self.use_auto3) and ('AUTO1' in self.symbols)
+        if self.use_auto1:
+            self.symbols = [s for s in self.symbols if s != 'AUTO1']
+            if not self.symbols:
+                self.symbols = ['BTCUSDT']  # Temporary placeholder before selector runs
+            log.info("🎯 AUTO1 mode enabled - Symbol selector will run at startup")
         
         # 🤖 AI500 Dynamic Resolution
         self.use_ai500 = 'AI500_TOP5' in self.symbols and not self.use_auto3
@@ -366,7 +378,10 @@ class MultiAgentTradingBot:
     def _update_llm_metadata(self):
         """Collect current LLM provider/model and agent system prompts for UI display"""
         try:
-            from src.agents import TrendAgentLLM, SetupAgentLLM, TriggerAgentLLM, ReflectionAgentLLM
+            from src.agents.trend_agent import TrendAgentLLM
+            from src.agents.setup_agent import SetupAgentLLM
+            from src.agents.trigger_agent import TriggerAgentLLM
+            from src.agents.reflection_agent import ReflectionAgentLLM
             
             # 1. Collect LLM Engine info (Decision Core)
             llm_info = {
@@ -449,6 +464,26 @@ class MultiAgentTradingBot:
                     self.symbols = [s.strip() for s in symbol_str.split(',') if s.strip()]
                 else:
                     self.symbols = [symbol_str]
+
+        # Normalize legacy AUTO2 -> AUTO1
+        if 'AUTO2' in self.symbols:
+            self.symbols = ['AUTO1' if s == 'AUTO2' else s for s in self.symbols]
+
+        # 🔝 AUTO3 Dynamic Resolution (takes priority)
+        self.use_auto3 = 'AUTO3' in self.symbols
+        if self.use_auto3:
+            self.symbols = [s for s in self.symbols if s not in ('AUTO3', 'AUTO1')]
+            if not self.symbols:
+                self.symbols = ['FETUSDT']
+            log.info("🔝 AUTO3 mode enabled - Startup backtest will run")
+
+        # AUTO1 Dynamic Selection
+        self.use_auto1 = (not self.use_auto3) and ('AUTO1' in self.symbols)
+        if self.use_auto1:
+            self.symbols = [s for s in self.symbols if s != 'AUTO1']
+            if not self.symbols:
+                self.symbols = ['BTCUSDT']
+            log.info("🎯 AUTO1 mode enabled - Symbol selector will run at startup")
 
         # 🤖 AI500 Dynamic Resolution
         if 'AI500_TOP5' in self.symbols:
@@ -1497,7 +1532,11 @@ class MultiAgentTradingBot:
                         global_state.last_reflection = res.raw_response
                         global_state.last_reflection_text = reflection_text
                         global_state.reflection_count = self.reflection_agent.reflection_count
-                        global_state.add_agent_message("reflection_agent", f"Reflected on {len(trades_to_analyze)} trades. Insight: {res.insight[:100]}...", level="info")
+                        global_state.add_agent_message(
+                            "reflection_agent",
+                            f"Reflected on {len(trades_to_analyze)} trades. Insight: {res.insight}",
+                            level="info"
+                        )
                     return res
                 return None
 
@@ -1895,19 +1934,24 @@ class MultiAgentTradingBot:
             global_state.four_layer_result = four_layer_result
             
             # 🆕 MULTI-AGENT SEMANTIC ANALYSIS (LLM/Local)
-            use_trend_llm = self.agent_config.trend_agent_llm or self.agent_config.setup_agent_llm
-            use_trend_local = self.agent_config.trend_agent_local or self.agent_config.setup_agent_local
+            use_trend_llm = self.agent_config.trend_agent_llm
+            use_trend_local = self.agent_config.trend_agent_local
+            use_setup_llm = self.agent_config.setup_agent_llm
+            use_setup_local = self.agent_config.setup_agent_local
             use_trigger_llm = self.agent_config.trigger_agent_llm
             use_trigger_local = self.agent_config.trigger_agent_local
             use_trend = use_trend_llm or use_trend_local
+            use_setup = use_setup_llm or use_setup_local
             use_trigger = use_trigger_llm or use_trigger_local
 
             if use_trend and use_trend_llm and use_trend_local:
                 log.info("⚠️ Both TrendAgentLLM and TrendAgent enabled; using LLM version only")
+            if use_setup and use_setup_llm and use_setup_local:
+                log.info("⚠️ Both SetupAgentLLM and SetupAgent enabled; using LLM version only")
             if use_trigger and use_trigger_llm and use_trigger_local:
                 log.info("⚠️ Both TriggerAgentLLM and TriggerAgent enabled; using LLM version only")
 
-            if use_trend or use_trigger:
+            if use_trend or use_setup or use_trigger:
                 if not (hasattr(self, '_headless_mode') and self._headless_mode):
                     print("[Step 2.5/5] 🤖 Multi-Agent Semantic Analysis...")
                 try:
@@ -1947,23 +1991,27 @@ class MultiAgentTradingBot:
                     if use_trend:
                         if use_trend_llm:
                             from src.agents.trend_agent import TrendAgentLLM
-                            from src.agents.setup_agent import SetupAgentLLM
                             if not hasattr(self, '_trend_agent_llm'):
                                 self._trend_agent_llm = TrendAgentLLM()
-                            if not hasattr(self, '_setup_agent_llm'):
-                                self._setup_agent_llm = SetupAgentLLM()
                             trend_agent = self._trend_agent_llm
-                            setup_agent = self._setup_agent_llm
                         else:
                             from src.agents.trend_agent import TrendAgent
-                            from src.agents.setup_agent import SetupAgent
                             if not hasattr(self, '_trend_agent_local'):
                                 self._trend_agent_local = TrendAgent()
+                            trend_agent = self._trend_agent_local
+                        tasks['trend'] = loop.run_in_executor(None, trend_agent.analyze, trend_data)
+
+                    if use_setup:
+                        if use_setup_llm:
+                            from src.agents.setup_agent import SetupAgentLLM
+                            if not hasattr(self, '_setup_agent_llm'):
+                                self._setup_agent_llm = SetupAgentLLM()
+                            setup_agent = self._setup_agent_llm
+                        else:
+                            from src.agents.setup_agent import SetupAgent
                             if not hasattr(self, '_setup_agent_local'):
                                 self._setup_agent_local = SetupAgent()
-                            trend_agent = self._trend_agent_local
                             setup_agent = self._setup_agent_local
-                        tasks['trend'] = loop.run_in_executor(None, trend_agent.analyze, trend_data)
                         tasks['setup'] = loop.run_in_executor(None, setup_agent.analyze, setup_data)
                     
                     if use_trigger:
@@ -2051,6 +2099,14 @@ class MultiAgentTradingBot:
                 global_state.multi_period_result = {}
 
             # Step 3: Decision (Fast trend first, then LLM fallback)
+            selected_agent_outputs = self._collect_selected_agent_outputs(
+                predict_result=predict_result,
+                reflection_text=reflection_text
+            )
+            # Inject selected agent outputs into Decision Core input
+            if isinstance(quant_analysis, dict):
+                quant_analysis['agent_outputs'] = selected_agent_outputs
+
             market_data = {
                 'df_5m': processed_dfs['5m'],
                 'df_15m': processed_dfs['15m'],
@@ -2076,7 +2132,7 @@ class MultiAgentTradingBot:
                     conf_val = 0.0
                 global_state.add_agent_message(
                     "decision_core",
-                    f"Action: {decision_payload.get('action', '').upper()} | Conf: {conf_val:.1f}% | Reason: {decision_payload.get('reasoning', '')[:100]}... | Source: FORCED",
+                    f"Action: {decision_payload.get('action', '').upper()} | Conf: {conf_val:.1f}% | Reason: {decision_payload.get('reasoning', '')} | Source: FORCED",
                     level="warning"
                 )
             else:
@@ -2148,7 +2204,8 @@ class MultiAgentTradingBot:
                         predict_result=predict_result,
                         market_data=market_data,
                         regime_info=regime_info,
-                        position_info=current_position_info  # ✅ Pass Position Info
+                        position_info=current_position_info,  # ✅ Pass Position Info
+                        selected_agent_outputs=selected_agent_outputs
                     )
 
                     market_context_data = {
@@ -2165,8 +2222,8 @@ class MultiAgentTradingBot:
                     bull_p, bear_p = await asyncio.gather(bull_task, bear_task)
 
                     # Post to Chatroom
-                    bull_summary = bull_p.get('bullish_reasons', 'No reasons provided')[:150] + "..."
-                    bear_summary = bear_p.get('bearish_reasons', 'No reasons provided')[:150] + "..."
+                    bull_summary = bull_p.get('bullish_reasons', 'No reasons provided')
+                    bear_summary = bear_p.get('bearish_reasons', 'No reasons provided')
                     global_state.add_agent_message("bull_agent", f"Stance: {bull_p.get('stance')} | Reason: {bull_summary}", level="success")
                     global_state.add_agent_message("bear_agent", f"Stance: {bear_p.get('stance')} | Reason: {bear_summary}", level="warning")
 
@@ -2186,7 +2243,7 @@ class MultiAgentTradingBot:
                         conf_val = 0.0
                     global_state.add_agent_message(
                         "decision_core",
-                        f"Action: {decision_payload.get('action').upper()} | Conf: {conf_val:.1f}% | Reason: {decision_payload.get('reasoning')[:100]}...",
+                        f"Action: {decision_payload.get('action').upper()} | Conf: {conf_val:.1f}% | Reason: {decision_payload.get('reasoning')}",
                         level="info"
                     )
                 else:
@@ -2228,7 +2285,7 @@ class MultiAgentTradingBot:
                         conf_val = 0.0
                     global_state.add_agent_message(
                         "decision_core",
-                        f"Action: {decision_payload.get('action').upper()} | Conf: {conf_val:.1f}% | Reason: {decision_payload.get('reasoning')[:100]}... | Source: RULE",
+                        f"Action: {decision_payload.get('action').upper()} | Conf: {conf_val:.1f}% | Reason: {decision_payload.get('reasoning')} | Source: RULE",
                         level="info"
                     )
 
@@ -3427,11 +3484,71 @@ class MultiAgentTradingBot:
         except Exception as e:
             log.error(f"Order execution failed: {e}", exc_info=True)
             return False
+
+    def _format_agent_output_for_context(self, key: str, value: Any) -> str:
+        import json
+        try:
+            payload = json.dumps(value, ensure_ascii=False, default=str)
+        except Exception:
+            payload = str(value)
+        if len(payload) > 800:
+            payload = payload[:800] + "...(truncated)"
+        return f"- {key}: {payload}\n"
+
+    def _collect_selected_agent_outputs(
+        self,
+        predict_result=None,
+        reflection_text: Optional[str] = None
+    ) -> Dict[str, Any]:
+        outputs: Dict[str, Any] = {}
+
+        if getattr(self.agent_config, 'symbol_selector_agent', False):
+            if getattr(global_state, 'symbol_selector', None):
+                outputs['symbol_selector'] = global_state.symbol_selector
+
+        if getattr(self.agent_config, 'predict_agent', False) and predict_result:
+            try:
+                outputs['predict_agent'] = asdict(predict_result)
+            except Exception:
+                outputs['predict_agent'] = getattr(predict_result, '__dict__', str(predict_result))
+
+        semantic = getattr(global_state, 'semantic_analyses', {}) or {}
+
+        if self.agent_config.trend_agent_llm or self.agent_config.trend_agent_local:
+            if 'trend' in semantic:
+                outputs['trend_agent'] = semantic.get('trend')
+        if self.agent_config.setup_agent_llm or self.agent_config.setup_agent_local:
+            if 'setup' in semantic:
+                outputs['setup_agent'] = semantic.get('setup')
+        if self.agent_config.trigger_agent_llm or self.agent_config.trigger_agent_local:
+            if 'trigger' in semantic:
+                outputs['trigger_agent'] = semantic.get('trigger')
+
+        if self.agent_config.reflection_agent_llm or self.agent_config.reflection_agent_local:
+            outputs['reflection_agent'] = {
+                'count': getattr(global_state, 'reflection_count', 0),
+                'text': reflection_text,
+                'raw': getattr(global_state, 'last_reflection', None)
+            }
+
+        multi_period = getattr(global_state, 'multi_period_result', {}) or {}
+        if multi_period:
+            outputs['multi_period_agent'] = multi_period
+
+        return outputs
     
     
     
 
-    def _build_market_context(self, quant_analysis: Dict, predict_result, market_data: Dict, regime_info: Dict = None, position_info: Dict = None) -> str:
+    def _build_market_context(
+        self,
+        quant_analysis: Dict,
+        predict_result,
+        market_data: Dict,
+        regime_info: Dict = None,
+        position_info: Dict = None,
+        selected_agent_outputs: Optional[Dict] = None
+    ) -> str:
         """
         构建 DeepSeek LLM 所需的市场上下文文本
         """
@@ -3506,6 +3623,7 @@ class MultiAgentTradingBot:
         # Helper to format values safely
         def fmt_val(val, fmt="{:.2f}"):
             return fmt.format(val) if val is not None else "N/A"
+
             
         # 构建持仓信息文本 (New)
         position_section = ""
@@ -3530,14 +3648,15 @@ class MultiAgentTradingBot:
 """
         
         context = f"""
-## 1. Price & Position Overview
+## 1. Snapshot
 - Symbol: {self.current_symbol}
-- Current Price: ${current_price:,.2f}
-
-{position_section}
-
-## 2. Four-Layer Strategy Status
+- Price: ${current_price:,.2f}
 """
+
+        if position_section:
+            context += f"\n{position_section}\n"
+
+        context += "\n## 2. Four-Layer Status\n"
         # Build four-layer status summary with smart grouping
         blocking_reason = global_state.four_layer_result.get('blocking_reason', 'None')
         layer1_pass = global_state.four_layer_result.get('layer1_pass')
@@ -3578,17 +3697,19 @@ class MultiAgentTradingBot:
             anomalies = ', '.join(global_state.four_layer_result.get('data_anomalies', []))
             context += f"\n\n⚠️ **DATA ANOMALY**: {anomalies}"
 
-        # Multi-Period Parser Summary
-        multi_period = getattr(global_state, 'multi_period_result', {}) or {}
+        # Multi-Period Parser Summary (only if selected)
+        multi_period = None
+        if selected_agent_outputs and selected_agent_outputs.get('multi_period_agent'):
+            multi_period = selected_agent_outputs.get('multi_period_agent') or {}
         if multi_period:
             trend_scores = multi_period.get('trend_scores', {}) or {}
             four_layer = multi_period.get('four_layer', {}) or {}
             layer_pass = four_layer.get('layer_pass', {}) or {}
-            context += "\n\n## 3. Multi-Period Parser\n"
+            context += "\n\n## 3. Multi-Period\n"
             context += (
                 f"- Alignment: {multi_period.get('alignment_reason', 'N/A')}\n"
                 f"- Bias: {multi_period.get('bias', 'N/A')}\n"
-                f"- Trend Scores (1h/15m/5m): "
+                f"- Trend(1h/15m/5m): "
                 f"{trend_scores.get('trend_1h', 0):+.0f}/"
                 f"{trend_scores.get('trend_15m', 0):+.0f}/"
                 f"{trend_scores.get('trend_5m', 0):+.0f}\n"
@@ -3599,46 +3720,49 @@ class MultiAgentTradingBot:
                 f"L4:{'Y' if layer_pass.get('L4') else 'N'})"
             )
 
-        context += "\n\n## 4. Detailed Market Analysis\n"
+        # Selected agent outputs (explicitly inject for Decision Core)
+        if selected_agent_outputs:
+            context += "\n\n## 4. Enabled Agent Outputs (Compact)\n"
+            for key, val in selected_agent_outputs.items():
+                context += self._format_agent_output_for_context(key, val)
+
+        context += "\n\n## 5. Market Summary\n"
         
-        # Extract analysis results
-        trend_result = getattr(global_state, 'semantic_analyses', {}).get('trend', {})
-        setup_result = getattr(global_state, 'semantic_analyses', {}).get('setup', {})
-        trigger_result = getattr(global_state, 'semantic_analyses', {}).get('trigger', {})
+        # Extract analysis results (respect selected agents)
+        trend_result = {}
+        setup_result = {}
+        trigger_result = {}
+        if selected_agent_outputs:
+            trend_result = selected_agent_outputs.get('trend_agent', {})
+            setup_result = selected_agent_outputs.get('setup_agent', {})
+            trigger_result = selected_agent_outputs.get('trigger_agent', {})
+        else:
+            trend_result = getattr(global_state, 'semantic_analyses', {}).get('trend', {})
+            setup_result = getattr(global_state, 'semantic_analyses', {}).get('setup', {})
+            trigger_result = getattr(global_state, 'semantic_analyses', {}).get('trigger', {})
         
-        # Trend Analysis (formerly TREND AGENT)
         if isinstance(trend_result, dict):
-            trend_analysis = trend_result.get('analysis', 'Not available')
             trend_stance = trend_result.get('stance', 'UNKNOWN')
             trend_meta = trend_result.get('metadata', {})
-            trend_header = f"### 🔮 Trend & Direction Analysis [{trend_stance}] (Strength: {trend_meta.get('strength', 'N/A')}, ADX: {trend_meta.get('adx', 'N/A')})"
+            trend_line = f"- Trend: {trend_stance} | Strength={trend_meta.get('strength', 'N/A')} | ADX={trend_meta.get('adx', 'N/A')}"
         else:
-            trend_analysis = trend_result if trend_result else 'Not available'
-            trend_header = "🔮 Trend & Direction Analysis"
-            
-        # Entry Zone Analysis (formerly SETUP AGENT)
+            trend_line = "- Trend: N/A"
+
         if isinstance(setup_result, dict):
-            setup_analysis = setup_result.get('analysis', 'Not available')
             setup_stance = setup_result.get('stance', 'UNKNOWN')
             setup_meta = setup_result.get('metadata', {})
-            setup_header = f"### 📊 Entry Zone Analysis [{setup_stance}] (Zone: {setup_meta.get('zone', 'N/A')}, KDJ: {setup_meta.get('kdj_j', 'N/A')})"
+            setup_line = f"- Setup: {setup_stance} | Zone={setup_meta.get('zone', 'N/A')} | KDJ={setup_meta.get('kdj_j', 'N/A')} | MACD={setup_meta.get('macd_signal', 'N/A')}"
         else:
-            setup_analysis = setup_result if setup_result else 'Not available'
-            setup_header = "### 📊 Entry Zone Analysis"
+            setup_line = "- Setup: N/A"
 
-        # Entry Timing Signal (formerly TRIGGER AGENT)
         if isinstance(trigger_result, dict):
-            trigger_analysis = trigger_result.get('analysis', 'Not available')
             trigger_stance = trigger_result.get('stance', 'UNKNOWN')
             trigger_meta = trigger_result.get('metadata', {})
-            trigger_header = f"### ⚡ Entry Timing Signal [{trigger_stance}] (Pattern: {trigger_meta.get('pattern', 'NONE')}, RVOL: {trigger_meta.get('rvol', 'N/A')}x)"
+            trigger_line = f"- Trigger: {trigger_stance} | Pattern={trigger_meta.get('pattern', 'NONE')} | RVOL={trigger_meta.get('rvol', 'N/A')}x"
         else:
-            trigger_analysis = trigger_result if trigger_result else 'Not available'
-            trigger_header = "### ⚡ Entry Timing Signal"
+            trigger_line = "- Trigger: N/A"
 
-        context += f"\n{trend_header}\n{trend_analysis}\n"
-        context += f"\n{setup_header}\n{setup_analysis}\n"
-        context += f"\n{trigger_header}\n{trigger_analysis}\n"
+        context += f"{trend_line}\n{setup_line}\n{trigger_line}\n"
         
         # Note: Market Regime and Price Position are already calculated by TREND and SETUP agents
         # and included in their respective analyses above, so we don't duplicate them here.
@@ -3907,6 +4031,9 @@ class MultiAgentTradingBot:
                 cycle_trade_symbol = None
                 cycle_trade_action = None
                 cycle_trade_status = None
+
+                # 🧹 Clear chatroom messages each cycle (show current cycle only)
+                global_state.clear_agent_messages()
 
                 # 🧪 Test Mode: reset per-cycle baseline for PnL display
                 if self.test_mode:
@@ -4178,7 +4305,9 @@ def start_server():
     """Start FastAPI server in a separate thread"""
     import os
     port = int(os.getenv("PORT", 8000))
-    host = os.getenv("HOST", "127.0.0.1")
+    is_railway = bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID"))
+    is_production = is_railway or os.getenv("DEPLOYMENT_MODE", "local") != "local"
+    host = "0.0.0.0" if is_production else os.getenv("HOST", "127.0.0.1")
     print(f"\n🌍 Starting Web Dashboard at http://{host}:{port}")
     uvicorn.run(app, host=host, port=port, log_level="error")
 

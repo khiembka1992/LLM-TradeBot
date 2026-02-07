@@ -19,6 +19,7 @@ const i18n = {
         'section.kline': '📉 Real-time K-Line',
         'section.netvalue': '📈 Net Value Curve',
         'section.balance_curve': '📈 Real-time Balance Curve',
+        'section.live_positions': '📊 Live Positions',
         'section.decisions': '📋 Recent Decisions',
         'section.trades': '📜 Trade History',
         'section.logs': '📡 Live Log Output',
@@ -91,6 +92,8 @@ const i18n = {
         // Position Info
         'position.count': 'Positions',
         'position.none': 'No open positions',
+        'positions.total_unrealized': 'Total Unrealized PnL',
+        'positions.realized_pnl': 'Realized PnL',
 
         // Log Mode
         'log.simplified': 'Simplified',
@@ -385,6 +388,7 @@ const i18n = {
         'section.kline': '📉 实时K线',
         'section.netvalue': '📈 净值曲线',
         'section.balance_curve': '📈 实时余额曲线',
+        'section.live_positions': '📊 持仓',
         'section.decisions': '📋 最近决策',
         'section.trades': '📜 交易历史',
         'section.logs': '📡 实时日志',
@@ -457,6 +461,8 @@ const i18n = {
         // Position Info
         'position.count': '持仓数',
         'position.none': '无持仓',
+        'positions.total_unrealized': '未实现盈亏',
+        'positions.realized_pnl': '已实现盈亏',
 
         // Log Mode
         'log.simplified': '精简',

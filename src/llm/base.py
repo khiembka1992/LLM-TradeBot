@@ -9,6 +9,10 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, List
 import httpx
+import time
+
+from src.llm.metrics import record_error, record_request, record_success
+import re
 
 
 @dataclass
@@ -94,6 +98,20 @@ class BaseLLMClient(ABC):
     def _messages_to_list(self, messages: List[ChatMessage]) -> List[Dict[str, str]]:
         """将 ChatMessage 列表转换为字典列表"""
         return [{"role": m.role, "content": m.content} for m in messages]
+
+    def _estimate_tokens(self, text: str) -> int:
+        """Rough token estimator when provider usage is unavailable."""
+        if not text:
+            return 0
+        cjk_count = len(re.findall(r'[\u4e00-\u9fff]', text))
+        non_cjk = len(text) - cjk_count
+        return cjk_count + max(0, int(non_cjk / 4))
+
+    def _estimate_prompt_tokens(self, messages: List[ChatMessage]) -> int:
+        total = 0
+        for msg in messages:
+            total += self._estimate_tokens(msg.content)
+        return total
     
     def chat(
         self, 
@@ -140,14 +158,35 @@ class BaseLLMClient(ABC):
         last_error = None
         for attempt in range(self.config.max_retries):
             try:
+                record_request(self.PROVIDER, self.model)
+                est_prompt_tokens = self._estimate_prompt_tokens(messages)
+                start_ts = time.time()
                 response = self.client.post(url, json=body, headers=headers)
                 response.raise_for_status()
-                return self._parse_response(response.json())
+                parsed = self._parse_response(response.json())
+                usage = parsed.usage or {}
+                prompt_tokens = int(usage.get("prompt_tokens", 0) or 0)
+                completion_tokens = int(usage.get("completion_tokens", 0) or 0)
+                total_tokens = int(usage.get("total_tokens", 0) or 0)
+                if total_tokens <= 0:
+                    if prompt_tokens <= 0:
+                        prompt_tokens = est_prompt_tokens
+                    if completion_tokens <= 0:
+                        completion_tokens = self._estimate_tokens(parsed.content or "")
+                    total_tokens = prompt_tokens + completion_tokens
+                    parsed.usage = {
+                        "prompt_tokens": prompt_tokens,
+                        "completion_tokens": completion_tokens,
+                        "total_tokens": total_tokens
+                    }
+                latency_ms = int((time.time() - start_ts) * 1000)
+                record_success(self.PROVIDER, self.model, latency_ms, parsed.usage)
+                return parsed
             except httpx.HTTPStatusError as e:
                 last_error = e
+                record_error(self.PROVIDER, self.model, f"HTTP {e.response.status_code}")
                 if e.response.status_code in [429, 500, 502, 503, 504]:
                     # 可重试的 HTTP 错误
-                    import time
                     wait_time = 2 ** attempt
                     print(f"⚠️ LLM HTTP Error {e.response.status_code}, retrying in {wait_time}s (attempt {attempt + 1}/{self.config.max_retries})")
                     time.sleep(wait_time)
@@ -157,16 +196,16 @@ class BaseLLMClient(ABC):
                     ConnectionResetError, ConnectionError, OSError) as e:
                 # 网络连接错误，需要重试
                 last_error = e
-                import time
+                record_error(self.PROVIDER, self.model, type(e).__name__)
                 wait_time = 2 ** attempt
                 print(f"⚠️ LLM Connection Error: {type(e).__name__}, retrying in {wait_time}s (attempt {attempt + 1}/{self.config.max_retries})")
                 time.sleep(wait_time)
                 continue
             except Exception as e:
                 last_error = e
+                record_error(self.PROVIDER, self.model, type(e).__name__)
                 # 其他未知错误，最后一次尝试后抛出
                 if attempt < self.config.max_retries - 1:
-                    import time
                     wait_time = 2 ** attempt
                     print(f"⚠️ LLM Unexpected Error: {type(e).__name__}: {e}, retrying in {wait_time}s")
                     time.sleep(wait_time)

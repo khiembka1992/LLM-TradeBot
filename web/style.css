@@ -3486,6 +3486,210 @@ tr:first-child td {
     min-height: 0;
 }
 
+/* ========================================
+   Left Sidebar Layout Enhancements
+   ======================================== */
+.sidebar-left {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    font-family: 'IBM Plex Mono', monospace;
+    --tone-border: rgba(118, 215, 255, 0.16);
+    --tone-border-strong: rgba(118, 215, 255, 0.32);
+    --tone-bg: linear-gradient(180deg, rgba(7, 12, 20, 0.96), rgba(6, 9, 14, 0.99));
+    --tone-muted: rgba(164, 186, 210, 0.7);
+    --tone-value: #e6f6ff;
+    --tone-long: #2cf3c6;
+    --tone-long-bg: rgba(44, 243, 198, 0.1);
+    --tone-short: #ff6b9a;
+    --tone-short-bg: rgba(255, 107, 154, 0.1);
+    --tone-pos: #36f2a6;
+    --tone-neg: #ff7a59;
+}
+
+.live-positions-card {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 18px;
+    border: 1px solid var(--tone-border);
+    background: var(--tone-bg);
+    box-shadow: 0 14px 30px rgba(0, 0, 0, 0.4);
+}
+
+.live-positions-card h2 {
+    font-family: var(--font-display);
+    font-size: 0.95rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #f8f5e6;
+}
+
+.live-positions-card .card-header-compact {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.live-positions-card .badge {
+    background: rgba(118, 215, 255, 0.12);
+    border: 1px solid var(--tone-border-strong);
+    color: #aef1ff;
+    font-weight: 700;
+    font-size: 0.78rem;
+    padding: 4px 10px;
+    border-radius: 999px;
+}
+
+.positions-summary {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: rgba(118, 215, 255, 0.08);
+    border: 1px solid var(--tone-border);
+}
+
+.positions-summary .summary-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.82rem;
+    color: var(--tone-muted);
+}
+
+.positions-summary .value {
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 600;
+    color: var(--tone-value);
+}
+
+.positions-list-container {
+    max-height: 220px;
+    overflow: auto;
+    padding: 12px;
+    border-radius: 12px;
+    background: rgba(7, 14, 20, 0.85);
+    border: 1px solid var(--tone-border);
+}
+
+.position-details-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 0.78rem;
+    color: #d7f9ee;
+}
+
+.position-details-list .empty-msg {
+    color: #718096;
+}
+
+.sidebar-divider {
+    border: none;
+    border-top: 1px solid var(--tone-border);
+    margin: 6px 0;
+}
+
+.account-stats-compact {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+}
+
+.account-stats-compact .stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: rgba(8, 14, 22, 0.75);
+    border: 1px solid var(--tone-border);
+    font-size: 0.78rem;
+}
+
+.account-stats-compact .label {
+    color: var(--tone-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 0.68rem;
+}
+
+.account-stats-compact .value {
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 600;
+    color: var(--tone-value);
+}
+
+.stats-section-title {
+    font-size: 0.7rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(120, 230, 255, 0.9);
+    margin-bottom: 2px;
+}
+
+.llm-metrics-panel .stat-row {
+    background: rgba(118, 215, 255, 0.08);
+    border-color: rgba(118, 215, 255, 0.28);
+}
+
+.position-item {
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: rgba(8, 14, 20, 0.75);
+    border: 1px solid var(--tone-border);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.position-item.long {
+    border-color: rgba(44, 243, 198, 0.45);
+    background: var(--tone-long-bg);
+}
+
+.position-item.short {
+    border-color: rgba(255, 107, 154, 0.45);
+    background: var(--tone-short-bg);
+}
+
+.pos-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-weight: 600;
+}
+
+.pos-symbol {
+    font-family: 'IBM Plex Mono', monospace;
+    letter-spacing: 0.08em;
+    font-size: 0.82rem;
+    color: #eef9ff;
+}
+
+.pos-pnl {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.82rem;
+}
+
+.pos {
+    color: var(--tone-pos);
+}
+
+.neg {
+    color: var(--tone-neg);
+}
+
+.pos-sub {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.72rem;
+    color: var(--tone-muted);
+}
+
 .account-info-card h2 {
     margin: 0 0 8px 0;
     font-size: 1rem;

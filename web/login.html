@@ -291,6 +291,21 @@
     </div>
 
     <script>
+        async function loadDefaultPassword() {
+            try {
+                const res = await fetch('/api/login/default');
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data && data.password) {
+                    document.getElementById('password').value = data.password;
+                }
+            } catch (e) {
+                // Ignore
+            }
+        }
+
+        loadDefaultPassword();
+
         async function handleLogin(e) {
             e.preventDefault();
 

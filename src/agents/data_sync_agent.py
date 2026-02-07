@@ -86,7 +86,8 @@ class DataSyncAgent:
         
         # WebSocket 管理器（可选，默认禁用以避免事件循环冲突）
         import os
-        self.use_websocket = os.getenv("USE_WEBSOCKET", "false").lower() == "true"
+        is_railway = bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID"))
+        self.use_websocket = (os.getenv("USE_WEBSOCKET", "false").lower() == "true") and not is_railway
         self.ws_managers = {}
         self._initial_load_complete = {}
         self._ws_disabled_symbols = set()

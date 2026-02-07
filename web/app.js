@@ -2660,7 +2660,7 @@ function updateAgentFramework(system, decision, agents) {
         setOutput('out-trades-count', '--');
         setOutput('out-win-rate', '--');
         setOutput('out-insight', '--');
-        setSummary('sum-reflection', 'Reflection off.');
+        setSummary('sum-reflection', lang === 'zh' ? '复盘关闭。' : 'Reflection off.');
     } else if (decision.reflection) {
         setAgentStatus('flow-reflection', 'Done');
         const tradesCount = decision.reflection.trades;
@@ -2675,13 +2675,15 @@ function updateAgentFramework(system, decision, agents) {
             : '';
         const winText = winRate !== undefined && winRate !== null ? `${winRate.toFixed(1)}%` : '--';
         const tradesText = tradesCount !== undefined && tradesCount !== null ? `${tradesCount}` : '--';
-        setSummary('sum-reflection', `Reflection${count} | Trades ${tradesText} | WR ${winText}.`);
+        setSummary('sum-reflection', lang === 'zh'
+            ? `复盘${count} | 交易 ${tradesText} | 胜率 ${winText}`
+            : `Reflection${count} | Trades ${tradesText} | WR ${winText}.`);
     } else {
         setAgentStatus('flow-reflection', 'Idle');
         setOutput('out-trades-count', '--');
         setOutput('out-win-rate', '--');
         setOutput('out-insight', '--');
-        setSummary('sum-reflection', 'Reflection idle.');
+        setSummary('sum-reflection', lang === 'zh' ? '复盘待命。' : 'Reflection idle.');
     }
 
     // 🆕 [NEW] Render Multi-Agent Chatroom
@@ -2707,9 +2709,74 @@ function updateAgentFramework(system, decision, agents) {
         if (chatContainer.dataset.lastSig === sig) return;
 
         const translateChatText = (text) => {
-            if (lang === 'zh' || !text) return text;
+            if (!text) return text;
             let out = String(text);
-            const rules = [
+            if (lang === 'zh') {
+                const rulesZh = [
+                    { re: /Action:/g, out: '动作:' },
+                    { re: /Conf:/g, out: '置信度:' },
+                    { re: /Confidence:/g, out: '置信度:' },
+                    { re: /Reason:/g, out: '原因:' },
+                    { re: /Source:/g, out: '来源:' },
+                    { re: /Weighted score/g, out: '加权得分' },
+                    { re: /Alignment/g, out: '周期对齐' },
+                    { re: /Misaligned/g, out: '多周期分歧' },
+                    { re: /Waiting for 1h confirmation/g, out: '等待1h确认' },
+                    { re: /Choppy market wait/g, out: '震荡市观望' },
+                    { re: /Oscillator/g, out: '震荡指标' },
+                    { re: /strongly oversold/g, out: '强烈超卖' },
+                    { re: /strongly overbought/g, out: '强烈超买' },
+                    { re: /avoid chasing short/g, out: '避免追低做空' },
+                    { re: /avoid chasing long/g, out: '避免追高做多' },
+                    { re: /Pos=/g, out: '位置=' },
+                    { re: /bullish/g, out: '多头' },
+                    { re: /bearish/g, out: '空头' },
+                    { re: /trend/gi, out: '趋势' },
+                    { re: /Stance:/g, out: '立场:' },
+                    { re: /Strength:/g, out: '强度:' },
+                    { re: /ADX:/g, out: 'ADX:' },
+                    { re: /OI Fuel:/g, out: 'OI动能:' },
+                    { re: /Pattern:/g, out: '形态:' },
+                    { re: /RVOL:/g, out: '相对成交量:' },
+                    { re: /Trigger:/g, out: '触发:' },
+                    { re: /Mode:/g, out: '模式:' },
+                    { re: /Symbols:/g, out: '币种:' },
+                    { re: /Probability Up:/g, out: '上涨概率:' },
+                    { re: /Analysis Complete/g, out: '分析完成' },
+                    { re: /Insight:/g, out: '洞察:' },
+                    { re: /\bFAST\b/g, out: '快速' },
+                    { re: /\bFORCED\b/g, out: '强制' },
+                    { re: /\bHOLD\b/g, out: '观望' },
+                    { re: /\bWAIT\b/g, out: '等待' },
+                    { re: /\bLONG\b/g, out: '做多' },
+                    { re: /\bSHORT\b/g, out: '做空' },
+                    { re: /\bOPEN_LONG\b/g, out: '开多' },
+                    { re: /\bOPEN_SHORT\b/g, out: '开空' },
+                    { re: /\bCLOSE_POSITION\b/g, out: '平仓' },
+                    { re: /\bNEUTRAL\b/g, out: '中性' },
+                    { re: /\bERROR\b/g, out: '错误' },
+                    { re: /\bRULE\b/g, out: '规则' },
+                    { re: /\bLLM\b/g, out: '大模型' },
+                    { re: /\bDecision Core\b/g, out: '决策核心' },
+                    { re: /\bRisk Audit\b/g, out: '风险审计' },
+                    { re: /\bTrend Agent\b/g, out: '趋势代理' },
+                    { re: /\bTrigger Agent\b/g, out: '触发代理' },
+                    { re: /\bSetup Agent\b/g, out: '形态代理' },
+                    { re: /\bReflection Agent\b/g, out: '复盘代理' },
+                    { re: /Decision/g, out: '决策' }
+                ];
+                rulesZh.forEach(({ re, out: rep }) => {
+                    out = out.replace(re, rep);
+                });
+                if (!out || !out.trim()) {
+                    out = '（内容为空）';
+                }
+                return out;
+            }
+
+            // English mode: convert Chinese fragments to English, hide remaining Chinese
+            let outEn = out;
+            const rulesEn = [
                 { re: /加权得分/g, out: 'Weighted score' },
                 { re: /周期对齐/g, out: 'Alignment' },
                 { re: /多周期分歧/g, out: 'Misaligned' },
@@ -2727,13 +2794,13 @@ function updateAgentFramework(system, decision, agents) {
                 { re: /空头/g, out: 'bearish' },
                 { re: /趋势/g, out: 'trend' }
             ];
-            rules.forEach(({ re, out: rep }) => {
-                out = out.replace(re, rep);
+            rulesEn.forEach(({ re, out: rep }) => {
+                outEn = outEn.replace(re, rep);
             });
-            if (/[\u4e00-\u9fa5]/.test(out)) {
-                out = 'Details available (non-English content hidden)';
+            if (/[\u4e00-\u9fa5]/.test(outEn)) {
+                outEn = 'Details available (non-English content hidden)';
             }
-            return out;
+            return outEn;
         };
 
         chatContainer.innerHTML = '';
@@ -4664,6 +4731,8 @@ function renderTradeHistory(trades) {
                 renderAgentTabs();
                 renderAgentPanel(activeAgentId);
                 updateLlmBadge(data?.llm_info);
+                updateLlmMetrics(data?.llm_info, data?.llm_metrics);
+                updateLlmMetrics(data?.llm_info, data?.llm_metrics);
             } catch (err) {
                 console.error('Failed to load agent settings:', err);
                 renderAgentTabs();
@@ -4831,11 +4900,85 @@ function renderTradeHistory(trades) {
         }
     }
 
+        function updateLlmMetrics(llmInfo, metrics) {
+            const elTokens = document.getElementById('llm-metrics-tokens');
+            const elTotal = document.getElementById('llm-metrics-total');
+            const elSpeed = document.getElementById('llm-metrics-speed');
+            const elLatency = document.getElementById('llm-metrics-latency');
+            if (!elTokens && !elTotal && !elSpeed && !elLatency) return;
+
+            if (!llmInfo || !llmInfo.provider || llmInfo.provider === 'None') {
+                if (elTokens) elTokens.textContent = '--/--';
+                if (elTotal) elTotal.textContent = '--';
+                if (elSpeed) elSpeed.textContent = '-- tps';
+                if (elLatency) elLatency.textContent = '--/--/-- ms';
+                return;
+            }
+            const providerKey = (llmInfo.provider || '').toLowerCase();
+            const providerStats = metrics?.providers?.[providerKey];
+            if (!providerStats) {
+                if (elTokens) elTokens.textContent = '--/--';
+                if (elTotal) elTotal.textContent = '--';
+                if (elSpeed) elSpeed.textContent = '-- tps';
+                if (elLatency) elLatency.textContent = '--/--/-- ms';
+                return;
+            }
+            const inTok = providerStats.total_input_tokens ?? 0;
+            const outTok = providerStats.total_output_tokens ?? 0;
+            const totalTok = providerStats.total_tokens ?? (inTok + outTok);
+            const tps = providerStats.token_speed_tps ?? 0;
+            const minMs = providerStats.min_latency_ms ?? 0;
+            const avgMs = providerStats.avg_latency_ms ?? 0;
+            const maxMs = providerStats.max_latency_ms ?? 0;
+            if (elTokens) elTokens.textContent = `${inTok}/${outTok}`;
+            if (elTotal) elTotal.textContent = `${totalTok}`;
+            if (elSpeed) elSpeed.textContent = `${tps} tps`;
+            if (elLatency) elLatency.textContent = `${minMs}/${avgMs}/${maxMs} ms`;
+        }
+
+        function updateLlmMetrics(llmInfo, metrics) {
+            const elTokens = document.getElementById('llm-metrics-tokens');
+            const elTotal = document.getElementById('llm-metrics-total');
+            const elSpeed = document.getElementById('llm-metrics-speed');
+            const elLatency = document.getElementById('llm-metrics-latency');
+            if (!elTokens && !elTotal && !elSpeed && !elLatency) return;
+
+            if (!llmInfo || !llmInfo.provider || llmInfo.provider === 'None') {
+                if (elTokens) elTokens.textContent = '--/--';
+                if (elTotal) elTotal.textContent = '--';
+                if (elSpeed) elSpeed.textContent = '-- tps';
+                if (elLatency) elLatency.textContent = '--/--/-- ms';
+                return;
+            }
+            const providerKey = (llmInfo.provider || '').toLowerCase();
+            const providerStats = metrics?.providers?.[providerKey];
+            if (!providerStats) {
+                if (elTokens) elTokens.textContent = '--/--';
+                if (elTotal) elTotal.textContent = '--';
+                if (elSpeed) elSpeed.textContent = '-- tps';
+                if (elLatency) elLatency.textContent = '--/--/-- ms';
+                return;
+            }
+            const inTok = providerStats.total_input_tokens ?? 0;
+            const outTok = providerStats.total_output_tokens ?? 0;
+            const totalTok = providerStats.total_tokens ?? (inTok + outTok);
+            const tps = providerStats.token_speed_tps ?? 0;
+            const minMs = providerStats.min_latency_ms ?? 0;
+            const avgMs = providerStats.avg_latency_ms ?? 0;
+            const maxMs = providerStats.max_latency_ms ?? 0;
+            if (elTokens) elTokens.textContent = `${inTok}/${outTok}`;
+            if (elTotal) elTotal.textContent = `${totalTok}`;
+            if (elSpeed) elSpeed.textContent = `${tps} tps`;
+            if (elLatency) elLatency.textContent = `${minMs}/${avgMs}/${maxMs} ms`;
+        }
+
         async function refreshLlmBadge() {
             try {
                 const res = await fetch('/api/agents/settings', { credentials: 'include' });
                 const data = await res.json();
                 updateLlmBadge(data?.llm_info);
+                updateLlmMetrics(data?.llm_info, data?.llm_metrics);
+                updateLlmMetrics(data?.llm_info, data?.llm_metrics);
             } catch (err) {
                 console.warn('Failed to update LLM badge:', err);
             }

@@ -41,7 +41,7 @@ WEB_DIR = os.path.join(BASE_DIR, 'web')
 AGENT_SETTINGS_PATH = Path(BASE_DIR) / "config" / "agent_settings.json"
 
 # Authentication Configuration
-WEB_PASSWORD = os.environ.get("WEB_PASSWORD", "EthanAlgoX")  # Admin password
+WEB_PASSWORD = os.environ.get("WEB_PASSWORD")  # Admin password (optional)
 
 # Auto-detect production environment (Railway sets RAILWAY_* env vars and PORT)
 IS_RAILWAY = bool(os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("RAILWAY_PROJECT_ID"))
@@ -85,18 +85,29 @@ async def get_system_info():
         "requires_auth": True
     }
 
+# Public endpoint to prefill login (admin) password
+@app.get("/api/login/default")
+async def get_default_login():
+    # Railway default should always prefill EthanAlgoX
+    if IS_RAILWAY:
+        return {"password": "EthanAlgoX"}
+    # Local: if WEB_PASSWORD is not set, fall back to EthanAlgoX
+    return {"password": WEB_PASSWORD or "EthanAlgoX"}
+
 # Authentication Endpoints
 @app.post("/api/login")
 async def login(response: Response, data: LoginRequest):
     role = None
+    password = (data.password or "").strip()
     
     # Universal Login Logic (Robust for both Local and Railway)
     # 1. Admin Login: Password matches WEB_PASSWORD or hardcoded known admin passwords
-    if data.password == WEB_PASSWORD or data.password == "admin" or data.password == "EthanAlgoX":
+    if (WEB_PASSWORD and password == WEB_PASSWORD) or password == "admin" or password == "EthanAlgoX":
         role = 'admin'
-    # 2. User Login: Password is 'guest' OR Empty -> Read Only
-    elif not data.password or data.password == "guest":
-        role = 'user'
+    # 2. No guest/read-only mode: any non-admin password is invalid
+    elif not WEB_PASSWORD and password == "":
+        # If no WEB_PASSWORD is configured, allow empty password as admin
+        role = 'admin'
 
     if role:
         session_id = secrets.token_urlsafe(32)
@@ -782,9 +793,11 @@ async def get_agent_prompts(authenticated: bool = Depends(verify_auth)):
 @app.get("/api/agents/settings")
 async def get_agent_settings(authenticated: bool = Depends(verify_auth)):
     """Get agent configuration parameters and system prompts"""
+    from src.llm.metrics import snapshot as llm_snapshot
     settings = _load_agent_settings()
     return {
         "llm_info": global_state.llm_info,
+        "llm_metrics": llm_snapshot(),
         "agents": settings.get("agents", {})
     }
 
@@ -799,6 +812,11 @@ async def update_agent_settings(data: dict = Body(...), authenticated: bool = De
         "status": "success",
         "agents": settings.get("agents", {})
     }
+
+@app.get("/api/llm/metrics")
+async def get_llm_metrics(authenticated: bool = Depends(verify_auth)):
+    from src.llm.metrics import snapshot as llm_snapshot
+    return {"metrics": llm_snapshot()}
 
 @app.post("/api/config/prompt")
 async def update_prompt_text(data: dict = Body(...), authenticated: bool = Depends(verify_admin)):
