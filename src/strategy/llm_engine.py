@@ -11,6 +11,7 @@ import os
 import httpx
 from src.config import config
 from src.utils.logger import log
+from src.utils.action_protocol import VALID_ACTIONS
 from src.strategy.llm_parser import LLMOutputParser
 from src.strategy.decision_validator import DecisionValidator
 from src.llm import create_client, LLMConfig
@@ -209,7 +210,10 @@ class StrategyEngine:
             
             # 标准化 action 字段
             if 'action' in decision:
-                decision['action'] = self.parser.normalize_action(decision['action'])
+                decision['action'] = self.parser.normalize_action(
+                    decision['action'],
+                    position_side=market_context_data.get('position_side')
+                )
             
             # 验证决策
             is_valid, errors = self.validator.validate(decision)
@@ -485,12 +489,7 @@ Analyze the above data following the strategy rules in system prompt. Output you
                 return False
         
         # 检查action合法性
-        valid_actions = [
-            'open_long', 'open_short',
-            'close_long', 'close_short', 'close_position',
-            'add_position', 'reduce_position', 'hold', 'wait'
-        ]
-        if decision['action'] not in valid_actions:
+        if decision['action'] not in VALID_ACTIONS:
             log.error(f"无效的action: {decision['action']}")
             return False
         

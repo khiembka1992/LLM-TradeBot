@@ -2219,7 +2219,8 @@ class MultiAgentTradingBot:
                     market_context_data = {
                         'symbol': self.current_symbol,
                         'timestamp': datetime.now().isoformat(),
-                        'current_price': current_price
+                        'current_price': current_price,
+                        'position_side': (current_position_info or {}).get('side')
                     }
 
                     # 🐂🐻 Parallel Perspectives (Chatroom Mode)

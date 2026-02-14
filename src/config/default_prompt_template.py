@@ -210,7 +210,7 @@ You will receive:
 
 1. **Pyramiding (Adding to Winners)**:
    - **Trigger**: PnL > +1.5% AND Trend Score strengthens (> +25).
-   - **Action**: `add_position`
+   - **Action**: Keep `hold` and explain suggested add-on logic in reasoning.
    - **Limit**: Max 2 additions. Don't add if resisting major level.
 
 2. **Trailing Stop Simulation**:
@@ -233,13 +233,12 @@ You will receive:
   }
  ```
  
- ### Action Types
- - `wait`: Default when no position and no signal
- - `hold`: Maintain current position (or wait if none)
- - `open_long` / `open_short`: Open new position
- - `close_position`: Close current position (Full exit)
- - `add_position`: Increase size (Pyramiding)
- - `reduce_position`: Decrease size (Take partial profit / Risk reduction)
+### Action Types
+- `wait`: Default when no position and no signal
+- `hold`: Maintain current position (or wait if none)
+- `open_long` / `open_short`: Open new position
+- `close_long` / `close_short`: Close current position (Preferred when side is known)
+- `close_position`: Generic close fallback when side is unclear
   - **NOTE**: For `hold`, you can still update `stop_loss_pct` / `take_profit_pct` to manage risk.
 
 ### Reasoning Format (Structured for Clarity)

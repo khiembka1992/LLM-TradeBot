@@ -5,6 +5,7 @@
 
 from typing import Dict, List, Tuple, Optional
 from src.utils.logger import log
+from src.utils.action_protocol import normalize_action, VALID_ACTIONS, OPEN_ACTIONS
 
 
 class DecisionValidator:
@@ -53,14 +54,12 @@ class DecisionValidator:
         if errors:
             return False, errors
         
-        # 2. action 合法性检查
-        valid_actions = [
-            'open_long', 'open_short', 
-            'close_long', 'close_short', 
-            'close_position',
-            'hold', 'wait'
-        ]
-        if decision['action'] not in valid_actions:
+        # 2. action 合法性检查（统一动作协议）
+        decision['action'] = normalize_action(
+            decision.get('action'),
+            position_side=decision.get('position_side')
+        )
+        if decision['action'] not in VALID_ACTIONS:
             errors.append(f"无效的 action: {decision['action']}")
         
         # 3. confidence 检查（如果存在）
@@ -74,7 +73,7 @@ class DecisionValidator:
         errors.extend(format_errors)
         
         # 5. 开仓操作的额外检查
-        if decision['action'] in ['open_long', 'open_short']:
+        if decision['action'] in OPEN_ACTIONS:
             # 5.1 开仓必填字段
             open_required = ['leverage', 'position_size_usd', 'stop_loss', 'take_profit']
             for field in open_required:
@@ -166,10 +165,13 @@ class DecisionValidator:
         Returns:
             True if valid, False otherwise
         """
-        action = decision.get('action')
+        action = normalize_action(
+            decision.get('action'),
+            position_side=decision.get('position_side')
+        )
         
         # 只检查开仓操作
-        if action not in ['open_long', 'open_short']:
+        if action not in OPEN_ACTIONS:
             return True
         
         # 获取价格
@@ -217,10 +219,13 @@ class DecisionValidator:
         Returns:
             风险回报比，如果无法计算返回 None
         """
-        action = decision.get('action')
+        action = normalize_action(
+            decision.get('action'),
+            position_side=decision.get('position_side')
+        )
         
         # 只计算开仓操作
-        if action not in ['open_long', 'open_short']:
+        if action not in OPEN_ACTIONS:
             return None
         
         # 获取价格
@@ -264,7 +269,7 @@ class DecisionValidator:
             summary = f"✅ 决策验证通过: {decision.get('action', 'unknown')}"
             
             # 添加关键信息
-            if decision.get('action') in ['open_long', 'open_short']:
+            if decision.get('action') in OPEN_ACTIONS:
                 ratio = self.calculate_risk_reward_ratio(decision)
                 if ratio:
                     summary += f", 风险回报比: {ratio:.2f}"

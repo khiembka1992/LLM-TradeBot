@@ -157,7 +157,7 @@ class RiskAuditAgent:
                 warnings=['观望中']
             )
 
-        if (is_open_action(action) or action == 'add_position') and account_balance <= 0:
+        if is_open_action(action) and account_balance <= 0:
             return self._block_decision('insufficient_margin_blocks', f"账户余额无效({account_balance:.2f})，无法开仓")
 
         # 0.1 对抗式数据提取 (Market Awareness)

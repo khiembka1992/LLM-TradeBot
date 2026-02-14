@@ -330,7 +330,7 @@ class LLMOutputParser:
             'reasoning': 'Parse error, fallback to safe wait decision'
         }
     
-    def normalize_action(self, action: str) -> str:
+    def normalize_action(self, action: str, position_side: Optional[str] = None) -> str:
         """
         标准化 action 字段
         
@@ -341,11 +341,12 @@ class LLMOutputParser:
         
         Args:
             action: 原始 action
+            position_side: 当前持仓方向（可选，用于解析 close_position）
             
         Returns:
             标准化后的 action
         """
-        return normalize_action(action)
+        return normalize_action(action, position_side=position_side)
     
     def validate_format(self, json_str: str) -> Tuple[bool, str]:
         """

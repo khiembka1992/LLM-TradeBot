@@ -4,6 +4,7 @@ Trading action protocol helpers.
 Canonical actions:
 - open_long / open_short
 - close_long / close_short
+- close_position (generic close when side is unknown)
 - wait / hold
 """
 
@@ -18,6 +19,25 @@ class Action(str, Enum):
     CLOSE_SHORT = "close_short"
     WAIT = "wait"
     HOLD = "hold"
+
+
+OPEN_ACTIONS = frozenset({
+    Action.OPEN_LONG.value,
+    Action.OPEN_SHORT.value,
+})
+
+CLOSE_ACTIONS = frozenset({
+    Action.CLOSE_LONG.value,
+    Action.CLOSE_SHORT.value,
+    "close_position",
+})
+
+PASSIVE_ACTIONS = frozenset({
+    Action.WAIT.value,
+    Action.HOLD.value,
+})
+
+VALID_ACTIONS = OPEN_ACTIONS | CLOSE_ACTIONS | PASSIVE_ACTIONS
 
 
 def normalize_action(action: Optional[str], position_side: Optional[str] = None) -> str:
@@ -57,11 +77,11 @@ def normalize_action(action: Optional[str], position_side: Optional[str] = None)
 
 
 def is_open_action(action: Optional[str]) -> bool:
-    return normalize_action(action) in {Action.OPEN_LONG.value, Action.OPEN_SHORT.value}
+    return normalize_action(action) in OPEN_ACTIONS
 
 
 def is_close_action(action: Optional[str]) -> bool:
-    return normalize_action(action) in {Action.CLOSE_LONG.value, Action.CLOSE_SHORT.value, "close_position"}
+    return normalize_action(action) in CLOSE_ACTIONS
 
 
 def is_long_action(action: Optional[str]) -> bool:
@@ -70,3 +90,7 @@ def is_long_action(action: Optional[str]) -> bool:
 
 def is_short_action(action: Optional[str]) -> bool:
     return normalize_action(action) in {Action.OPEN_SHORT.value, Action.CLOSE_SHORT.value}
+
+
+def is_passive_action(action: Optional[str]) -> bool:
+    return normalize_action(action) in PASSIVE_ACTIONS

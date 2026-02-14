@@ -27,6 +27,7 @@ def test_normalize_close_without_side_keeps_generic():
 
 def test_normalize_invalid_defaults_to_wait():
     assert normalize_action("something_unknown") == "wait"
+    assert normalize_action("add_position") == "wait"
 
 
 def test_action_classifiers():
