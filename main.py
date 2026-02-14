@@ -106,6 +106,7 @@ print("[DEBUG] Importing StrategyEngine...")
 from src.strategy.llm_engine import StrategyEngine
 print("[DEBUG] Importing PredictAgent...")
 from src.agents.predict_agent import PredictAgent
+from src.agents.contracts import SuggestedTrade
 print("[DEBUG] Importing symbol_selector_agent...")
 from src.agents.symbol_selector_agent import get_selector  # 🔝 AUTO3 Support
 print("[DEBUG] Importing server.app...")
@@ -3469,9 +3470,17 @@ class MultiAgentTradingBot:
             log.error(f"Failed to get positions: {e}")
             return None
 
-    def _execute_suggested_open_trade(self, symbol: str, suggested: Dict, cycle_id: str) -> Dict:
+    def _execute_suggested_open_trade(self, symbol: str, suggested: Any, cycle_id: str) -> Dict:
         """Execute an already-audited open suggestion without re-running full analysis."""
-        order_params = dict((suggested or {}).get('order_params') or {})
+        if isinstance(suggested, SuggestedTrade):
+            suggestion_symbol = suggested.symbol
+            order_params = dict(suggested.order_params or {})
+            suggested_price = suggested.current_price
+        else:
+            suggestion_symbol = symbol
+            order_params = dict((suggested or {}).get('order_params') or {})
+            suggested_price = (suggested or {}).get('current_price')
+
         if not order_params:
             return {'status': 'failed', 'action': 'wait', 'details': {'error': 'missing_order_params'}}
 
@@ -3480,15 +3489,15 @@ class MultiAgentTradingBot:
             return {'status': 'failed', 'action': action, 'details': {'error': 'not_open_action'}}
 
         order_params['action'] = action
-        order_params['symbol'] = symbol
-        self.current_symbol = symbol
-        global_state.current_symbol = symbol
+        order_params['symbol'] = suggestion_symbol
+        self.current_symbol = suggestion_symbol
+        global_state.current_symbol = suggestion_symbol
 
         try:
             current_price = float(
-                suggested.get('current_price')
+                suggested_price
                 or order_params.get('entry_price')
-                or global_state.current_price.get(symbol, 0)
+                or global_state.current_price.get(suggestion_symbol, 0)
                 or 0
             )
         except (TypeError, ValueError):
@@ -3500,7 +3509,7 @@ class MultiAgentTradingBot:
             side = 'LONG' if action == 'open_long' else 'SHORT'
             quantity = float(order_params.get('quantity', 0) or 0)
             position_value = quantity * current_price
-            global_state.virtual_positions[symbol] = {
+            global_state.virtual_positions[suggestion_symbol] = {
                 'entry_price': current_price,
                 'quantity': quantity,
                 'side': side,
@@ -3513,20 +3522,20 @@ class MultiAgentTradingBot:
             self._save_virtual_state()
 
             self.saver.save_execution({
-                'symbol': symbol,
+                'symbol': suggestion_symbol,
                 'action': 'SIMULATED_EXECUTION',
                 'params': order_params,
                 'status': 'success',
                 'timestamp': datetime.now().isoformat(),
                 'cycle_id': cycle_id,
-            }, symbol, cycle_id=cycle_id)
+            }, suggestion_symbol, cycle_id=cycle_id)
 
             trade_record = {
                 'open_cycle': global_state.cycle_counter,
                 'close_cycle': 0,
                 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 'action': action.upper(),
-                'symbol': symbol,
+                'symbol': suggestion_symbol,
                 'entry_price': current_price,
                 'quantity': quantity,
                 'cost': position_value,
@@ -3552,7 +3561,7 @@ class MultiAgentTradingBot:
             'status': 'success' if is_success else 'failed',
             'timestamp': datetime.now().isoformat(),
             'cycle_id': cycle_id,
-        }, symbol, cycle_id=cycle_id)
+        }, suggestion_symbol, cycle_id=cycle_id)
 
         if not is_success:
             global_state.add_log(f"[🚀 EXECUTOR] Live: {action.upper()} => ❌ FAILED")
@@ -3564,7 +3573,7 @@ class MultiAgentTradingBot:
             'close_cycle': 0,
             'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             'action': action.upper(),
-            'symbol': symbol,
+            'symbol': suggestion_symbol,
             'entry_price': current_price,
             'quantity': quantity,
             'cost': current_price * quantity,
@@ -4252,7 +4261,7 @@ class MultiAgentTradingBot:
                 
                 # 🔄 多币种顺序处理: 依次分析每个交易对
                 # Step 1: 收集所有交易对的决策
-                all_decisions = []
+                all_decisions: List[SuggestedTrade] = []
                 latest_prices = {}  # Store latest prices for PnL calculation
                 for symbol in symbols_for_cycle:
                     self.current_symbol = symbol  # 设置当前处理的交易对
@@ -4266,29 +4275,26 @@ class MultiAgentTradingBot:
                     print(f"  [{symbol}] 结果: {result['status']}")
                     
                     # Collect viable open opportunities
-                    if result.get('status') == 'suggested':
-                        all_decisions.append({
-                            'symbol': symbol,
-                            'result': result,
-                            'confidence': result.get('confidence', 0)
-                        })
+                    suggested_trade = SuggestedTrade.from_cycle_result(symbol=symbol, result=result)
+                    if suggested_trade:
+                        all_decisions.append(suggested_trade)
                 
                 # Step 2: 从所有开仓决策中选择信心度最高的一个
                 if all_decisions:
                     # 按信心度排序
-                    all_decisions.sort(key=lambda x: x['confidence'], reverse=True)
+                    all_decisions.sort(key=lambda x: x.confidence, reverse=True)
                     best_decision = all_decisions[0]
                     
-                    print(f"\n🎯 本周期最优开仓机会: {best_decision['symbol']} (信心度: {best_decision['confidence']:.1f}%)")
-                    global_state.add_log(f"[🎯 SYSTEM] Best: {best_decision['symbol']} (Conf: {best_decision['confidence']:.1f}%)")
+                    print(f"\n🎯 本周期最优开仓机会: {best_decision.symbol} (信心度: {best_decision.confidence:.1f}%)")
+                    global_state.add_log(f"[🎯 SYSTEM] Best: {best_decision.symbol} (Conf: {best_decision.confidence:.1f}%)")
                     
                     # 只执行最优的一个（直接执行已审计建议，避免重复跑完整流程）
                     try:
-                        self.current_symbol = best_decision['symbol']
+                        self.current_symbol = best_decision.symbol
                         global_state.current_symbol = self.current_symbol
                         exec_result = self._execute_suggested_open_trade(
                             symbol=self.current_symbol,
-                            suggested=best_decision['result'],
+                            suggested=best_decision,
                             cycle_id=cycle_id
                         )
                         exec_action = exec_result.get('action', 'unknown')
@@ -4307,7 +4313,7 @@ class MultiAgentTradingBot:
                     
                     # 如果有其他开仓机会被跳过，记录下来
                     if len(all_decisions) > 1:
-                        skipped = [f"{d['symbol']}({d['confidence']:.1f}%)" for d in all_decisions[1:]]
+                        skipped = [f"{d.symbol}({d.confidence:.1f}%)" for d in all_decisions[1:]]
                         print(f"  ⏭️  跳过其他机会: {', '.join(skipped)}")
                         global_state.add_log(f"⏭️  Skipped opportunities: {', '.join(skipped)} (1 position per cycle limit)")
                 

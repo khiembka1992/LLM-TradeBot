@@ -1,176 +1,91 @@
-# 🤖 Multi-Agent Trading Framework
+# 🤖 Multi-Agent Runtime Architecture
 
-> LLM-TradeBot 多 Agent 协作架构概览
+> LLM-TradeBot 当前运行时多 Agent 架构（与 `main.py` 实现对齐）
 
-## 架构概览
+## 架构总览
 
-LLM-TradeBot 采用 5 个专业化 Agent 的协作架构，各司其职，形成完整的交易决策流水线。
+系统当前不是单一路径 5-Agent 线性串行，而是“多分支分析 + 决策路由 + 风控闸门 + 单机会执行”。
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         交易决策流水线                                    │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                          │
-│  ┌──────────────┐      ┌──────────────┐      ┌──────────────┐          │
-│  │   🕵️ Data     │      │   👨‍🔬 Quant   │      │   🔮 Predict  │          │
-│  │  SyncAgent   │─────▶│ AnalystAgent │─────▶│    Agent     │          │
-│  │ (The Oracle) │      │(The Strategist)│    │(The Prophet) │          │
-│  └──────────────┘      └──────────────┘      └──────────────┘          │
-│         │                      │                     │                  │
-│         │                      └──────────┬──────────┘                  │
-│         │                                 ▼                             │
-│         │                      ┌──────────────┐                         │
-│         │                      │  ⚖️ Decision  │                         │
-│         │                      │  CoreAgent   │                         │
-│         │                      │ (The Critic) │                         │
-│         │                      └──────────────┘                         │
-│         │                                 │                             │
-│         │                                 ▼                             │
-│         │                      ┌──────────────┐                         │
-│         │                      │  🛡️ RiskAudit │                         │
-│         └─────────────────────▶│    Agent     │                         │
-│              (market_data)     │(The Guardian)│                         │
-│                                └──────────────┘                         │
-│                                        │                                │
-│                                        ▼                                │
-│                                ┌──────────────┐                         │
-│                                │  🚀 Executor  │                         │
-│                                │   Engine     │                         │
-│                                └──────────────┘                         │
-│                                                                          │
-└─────────────────────────────────────────────────────────────────────────┘
+```text
+Symbol Selector (AUTO1/AUTO3)
+        │
+        ▼
+DataSyncAgent ──► QuantAnalystAgent ──┬──► PredictAgent (optional)
+                                       ├──► ReflectionAgent (optional)
+                                       ├──► Trend/Setup/Trigger Agent (LLM/Local optional)
+                                       └──► MultiPeriodParserAgent
+                                                │
+                                                ▼
+                                      Decision Router
+                      (Forced Exit / Fast Trend / LLM / Rule-Based DecisionCore)
+                                                │
+                                                ▼
+                                         RiskAuditAgent
+                                                │
+                                                ▼
+                                      Executor (single best open per cycle)
 ```
 
-## Agent 概览
+## Agent 分层
 
-| Agent | 别名 | 职责 | 输入 | 输出 |
-|-------|------|------|------|------|
-| [DataSyncAgent](01_data_sync_agent.md) | The Oracle | 数据采集 | symbol, limit | MarketSnapshot |
-| [QuantAnalystAgent](02_quant_analyst_agent.md) | The Strategist | 信号分析 | MarketSnapshot | quant_analysis |
-| [PredictAgent](03_predict_agent.md) | The Prophet | ML 预测 | features | PredictResult |
-| [DecisionCoreAgent](04_decision_core_agent.md) | The Critic | 决策融合 | quant_analysis, predict_result | VoteResult |
-| [RiskAuditAgent](05_risk_audit_agent.md) | The Guardian | 风控审计 | decision, position, balance | RiskCheckResult |
+| 层级 | Agent | 作用 | 是否可选 |
+|---|---|---|---|
+| 数据层 | DataSyncAgent | 拉取 5m/15m/1h 快照与实时价格 | 否 |
+| 分析层 | QuantAnalystAgent | 趋势/震荡/情绪/陷阱信号 | 否 |
+| 分析层 | PredictAgent | 30m 概率预测 | 是 |
+| 分析层 | ReflectionAgent / ReflectionAgentLLM | 交易复盘，提供 prompt 上下文 | 是 |
+| 分析层 | Trend/Setup/Trigger Agent (LLM/Local) | 语义解释与结构化 stance | 是 |
+| 汇总层 | MultiPeriodParserAgent | 多周期一致性摘要 | 否 |
+| 决策层 | Decision Router | 选择 forced-exit / fast-trend / LLM / rule-based 路径 | 否 |
+| 风控层 | RiskAuditAgent | 一票否决、止损修正、保证金/风险检查 | 否 |
+| 执行层 | Executor | 执行订单，维护交易/仓位状态 | 否 |
 
-## 数据流详解
+## 周期执行流程
 
-### Step 1: 数据采集 (DataSyncAgent)
+1. 读取 symbols（可由 Selector 动态刷新）。
+2. 对每个 symbol 执行分析流程（`analyze_only=True`）：
+   - 数据准备与有效性检查
+   - 并行分析任务（Quant / Predict / Reflection）
+   - Four-Layer Filter + 语义分析 + Multi-Period 汇总
+   - 决策路由并过 RiskAudit
+3. 收集所有 `suggested` 开仓建议。
+4. 仅执行置信度最高的 1 个开仓建议（单周期单开仓上限）。
+5. 更新账户、日志、决策历史与可视化状态。
 
-```python
-snapshot = await data_sync_agent.fetch_all_timeframes("BTCUSDT")
-```
+## 决策路由优先级
 
-- 并发获取 5m/15m/1h K 线数据
-- 获取资金费率、OI、机构资金流
-- 构建双视图：stable (已完成) + live (当前)
+1. `forced_exit`: 持仓超时/亏损阈值触发强制平仓。  
+2. `fast_trend`: 30m 动量快速信号触发。  
+3. `llm`: Bull/Bear 并行视角 + LLM 决策。  
+4. `decision_core`: LLM 不可用时回退规则决策。  
 
-### Step 2: 量化分析 (QuantAnalystAgent)
+## 动作协议（统一）
 
-```python
-quant_analysis = await quant_analyst_agent.analyze_all_timeframes(snapshot)
-```
+系统统一动作枚举（见 `src/utils/action_protocol.py`）：
 
-- 趋势分析：EMA 金叉/死叉，MACD 动量
-- 震荡分析：多周期 RSI
-- 情绪分析：资金流、资金费率、OI 变化
+- `open_long`
+- `open_short`
+- `close_long`
+- `close_short`
+- `wait`
+- `hold`
 
-### Step 2.5: ML 预测 (PredictAgent)
+说明：
 
-```python
-predict_result = await predict_agent.predict(features)
-```
+- 所有外部/内部动作先归一化再进入风控和执行层。
+- `close/close_position` 仅作为兼容输入，运行时会映射到明确方向的 close 动作。
 
-- 特征工程：80+ 技术特征
-- LightGBM 模型预测 30 分钟上涨概率
-- 自动回退到规则评分
+## 关键实现文件
 
-### Step 3: 决策融合 (DecisionCoreAgent)
+- 编排主流程：`/Users/yunxuanhan/Documents/workspace/ai/LLM-TradeBot/main.py`
+- Agent 配置：`/Users/yunxuanhan/Documents/workspace/ai/LLM-TradeBot/src/agents/agent_config.py`
+- 动作协议：`/Users/yunxuanhan/Documents/workspace/ai/LLM-TradeBot/src/utils/action_protocol.py`
+- 分析→执行契约：`/Users/yunxuanhan/Documents/workspace/ai/LLM-TradeBot/src/agents/contracts.py`
+- 风控：`/Users/yunxuanhan/Documents/workspace/ai/LLM-TradeBot/src/agents/risk_audit_agent.py`
+- 状态与 API：`/Users/yunxuanhan/Documents/workspace/ai/LLM-TradeBot/src/server/state.py`, `/Users/yunxuanhan/Documents/workspace/ai/LLM-TradeBot/src/server/app.py`
 
-```python
-vote_result = await decision_core_agent.make_decision(
-    quant_analysis, predict_result, market_data
-)
-```
+## 扩展建议
 
-- 加权投票：整合 8 个信号维度
-- 多周期对齐检测
-- 对抗式审计：信号与资金流背离
-
-### Step 4: 风控审计 (RiskAuditAgent)
-
-```python
-risk_result = await risk_audit_agent.audit_decision(
-    decision, current_position, account_balance, current_price
-)
-```
-
-- 止损方向自动修正
-- 仓位/杠杆/保证金检查
-- 一票否决权
-
-### Step 5: 执行 (ExecutorEngine)
-
-```python
-if risk_result.passed:
-    await executor.execute(decision)
-```
-
-## 配置文件
-
-### config.yaml
-
-```yaml
-trading:
-  symbols:
-    - BTCUSDT
-    - ETHUSDT
-    - SOLUSDT
-    - BNBUSDT
-  primary_symbol: BTCUSDT
-  max_trade_amount: 100
-  leverage: 1
-  stop_loss_pct: 0.01
-  take_profit_pct: 0.02
-  test_mode: true
-```
-
-## 日志输出示例
-
-```
-🔄 Cycle #1 | 分析 4 个交易对
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 [BTCUSDT] 开始分析...
-🕵️ DataSyncAgent (The Oracle): Action=Fetch[5m,15m,1h] | Snapshot=$96000.00
-👨‍🔬 QuantAnalystAgent (The Strategist): Trend(上涨,20) | Osc(RSI:55,0) | Sent(OI:0.5%,10) => Score: 12/100
-🔮 PredictAgent (The Prophet): 📈 P(Up)=56.5% | Signal: bullish | Conf: 65%
-⚖️ DecisionCoreAgent (The Critic): Context(Regime=trending, Pos=45%) => Vote: WAIT
-🛡️ RiskAuditAgent (The Guardian): Result: ✅ PASSED (Risk: safe)
-```
-
-## 扩展性
-
-### 添加新 Agent
-
-1. 创建 Agent 类文件 `src/agents/new_agent.py`
-2. 定义输入/输出数据结构
-3. 在 `main.py` 中初始化并集成到流水线
-4. 添加 Dashboard 日志输出
-
-### 信号权重调优
-
-修改 `DecisionCoreAgent.SignalWeight` 配置：
-
-```python
-SignalWeight(
-    trend_1h=0.25,   # 增加 1h 趋势权重
-    prophet=0.20,    # 增加 ML 预测权重
-    sentiment=0.15   # 降低情绪权重
-)
-```
-
-## 相关文档
-
-- [DataSyncAgent 详解](01_data_sync_agent.md)
-- [QuantAnalystAgent 详解](02_quant_analyst_agent.md)
-- [PredictAgent 详解](03_predict_agent.md)
-- [DecisionCoreAgent 详解](04_decision_core_agent.md)
-- [RiskAuditAgent 详解](05_risk_audit_agent.md)
+1. 新增 Agent 时优先接入 `agent_outputs`，并定义清晰输入/输出 schema。  
+2. 新动作必须先扩展 action protocol，再接入风控与执行。  
+3. Dashboard 展示字段应来自 `global_state` 的锁保护快照，避免竞态读。  
