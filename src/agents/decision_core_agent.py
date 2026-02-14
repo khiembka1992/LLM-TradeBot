@@ -146,7 +146,7 @@ class SignalWeight:
 @dataclass
 class VoteResult:
     """投票结果"""
-    action: str  # 'long', 'short', 'close_long', 'close_short', 'hold'
+    action: str  # 'open_long', 'open_short', 'close_long', 'close_short', 'wait/hold'
     confidence: float  # 0-100
     weighted_score: float  # -100 ~ +100
     vote_details: Dict[str, float]  # 各信号的贡献分
@@ -723,12 +723,12 @@ class DecisionCoreAgent:
                 # 强信号：两条件都满足
                 confidence = 0.70 + (35 - rsi) * 0.005
                 log.info(f"📈 [震荡策略] 强均值回归做多: RSI={rsi:.1f}, 位置={pos_pct:.1f}%")
-                return 'long', min(confidence, 0.80), f"震荡市强做多(RSI={rsi:.1f}, 位置={pos_pct:.1f}%)"
+                return 'open_long', min(confidence, 0.80), f"震荡市强做多(RSI={rsi:.1f}, 位置={pos_pct:.1f}%)"
             elif rsi < 40 and pos_pct < 50:
                 # 中等信号：条件部分满足
                 confidence = 0.60
                 log.info(f"📈 [震荡策略] 均值回归做多: RSI={rsi:.1f}, 位置={pos_pct:.1f}%")
-                return 'long', confidence, f"震荡市做多(RSI={rsi:.1f}, 位置={pos_pct:.1f}%)"
+                return 'open_long', confidence, f"震荡市做多(RSI={rsi:.1f}, 位置={pos_pct:.1f}%)"
         
         # 均值回归做空: RSI 超买 OR 高位
         if rsi > 60 or pos_pct > 60:
@@ -736,15 +736,15 @@ class DecisionCoreAgent:
                 # 强信号
                 confidence = 0.70 + (rsi - 65) * 0.005
                 log.info(f"📉 [震荡策略] 强均值回归做空: RSI={rsi:.1f}, 位置={pos_pct:.1f}%")
-                return 'short', min(confidence, 0.80), f"震荡市强做空(RSI={rsi:.1f}, 位置={pos_pct:.1f}%)"
+                return 'open_short', min(confidence, 0.80), f"震荡市强做空(RSI={rsi:.1f}, 位置={pos_pct:.1f}%)"
             elif rsi > 60 and pos_pct > 50:
                 # 中等信号
                 confidence = 0.60
                 log.info(f"📉 [震荡策略] 均值回归做空: RSI={rsi:.1f}, 位置={pos_pct:.1f}%")
-                return 'short', confidence, f"震荡市做空(RSI={rsi:.1f}, 位置={pos_pct:.1f}%)"
+                return 'open_short', confidence, f"震荡市做空(RSI={rsi:.1f}, 位置={pos_pct:.1f}%)"
         
         # 条件不满足，观望
-        return 'hold', 0.3, f"震荡市观望(RSI={rsi:.1f}, 位置={pos_pct:.1f}%)"
+        return 'wait', 0.3, f"震荡市观望(RSI={rsi:.1f}, 位置={pos_pct:.1f}%)"
     
     def _score_to_action(
         self, 
@@ -798,20 +798,20 @@ class DecisionCoreAgent:
         
         # 强信号：高阈值 + 多周期对齐
         if weighted_score > long_high_threshold and aligned:
-            return 'long', 0.85
+            return 'open_long', 0.85
         if weighted_score < -short_high_threshold and aligned:
-            return 'short', 0.85
+            return 'open_short', 0.85
         
         # 中等信号
         if weighted_score > long_threshold:
             confidence = 0.55 + (weighted_score - long_threshold) * 0.01
-            return 'long', min(confidence, 0.75)
+            return 'open_long', min(confidence, 0.75)
         if weighted_score < -short_threshold:
             confidence = 0.55 + (abs(weighted_score) - short_threshold) * 0.01
-            return 'short', min(confidence, 0.75)
+            return 'open_short', min(confidence, 0.75)
         
         # 弱信号或冲突 -> 观望
-        return 'hold', abs(weighted_score) / 100
+        return 'wait', abs(weighted_score) / 100
     
     def _generate_reason(
         self, 
@@ -978,8 +978,9 @@ class DecisionCoreAgent:
         return {
             'total_decisions': total,
             'action_distribution': {
-                'long': actions.count('long'),
-                'short': actions.count('short'),
+                'open_long': actions.count('open_long') + actions.count('long'),
+                'open_short': actions.count('open_short') + actions.count('short'),
+                'wait': actions.count('wait'),
                 'hold': actions.count('hold'),
             },
             'avg_confidence': avg_confidence,

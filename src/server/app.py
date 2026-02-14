@@ -258,78 +258,79 @@ async def get_status(authenticated: bool = Depends(verify_auth)):
                 continue
         return filtered
 
-    log_tail = 200
-    simplified_tail = 300
-    logs_tail = global_state.recent_logs[-log_tail:]
-    simplified_logs = _filter_simplified_logs(global_state.recent_logs[-simplified_tail:])
-    if len(simplified_logs) > log_tail:
-        simplified_logs = simplified_logs[-log_tail:]
+    with global_state.locked():
+        log_tail = 200
+        simplified_tail = 300
+        logs_tail = global_state.recent_logs[-log_tail:]
+        simplified_logs = _filter_simplified_logs(global_state.recent_logs[-simplified_tail:])
+        if len(simplified_logs) > log_tail:
+            simplified_logs = simplified_logs[-log_tail:]
 
-    account_payload = dict(global_state.account_overview or {})
-    realized_pnl = float(getattr(global_state, 'cumulative_realized_pnl', 0.0) or 0.0)
-    unrealized_pnl = float(account_payload.get('total_pnl', 0.0) or 0.0)
-    account_payload['realized_pnl'] = realized_pnl
-    account_payload['unrealized_pnl'] = unrealized_pnl
-    account_payload['total_pnl'] = realized_pnl + unrealized_pnl
+        account_payload = dict(global_state.account_overview or {})
+        realized_pnl = float(getattr(global_state, 'cumulative_realized_pnl', 0.0) or 0.0)
+        unrealized_pnl = float(account_payload.get('total_pnl', 0.0) or 0.0)
+        account_payload['realized_pnl'] = realized_pnl
+        account_payload['unrealized_pnl'] = unrealized_pnl
+        account_payload['total_pnl'] = realized_pnl + unrealized_pnl
 
-    data = {
-        "system": {
-            "running": global_state.is_running,
-            "mode": global_state.execution_mode,
-            "is_test_mode": global_state.is_test_mode,
-            "cycle_counter": global_state.cycle_counter,
-            "cycle_interval": global_state.cycle_interval,
-            "current_cycle_id": global_state.current_cycle_id,
-            "uptime_start": global_state.start_time,
-            "last_heartbeat": global_state.last_update,
-            "symbols": global_state.symbols,  # 🆕 Active trading symbols (AI500 Top5 support)
-            "timeframes": timeframes,
-            "current_symbol": getattr(global_state, 'current_symbol', '')
-        },
-        "demo": {
-            "demo_mode_active": global_state.demo_mode_active,
-            "demo_expired": global_state.demo_expired,
-            "demo_time_remaining": int(demo_time_remaining)
-        },
-        "market": {
-            "price": global_state.current_price,
-            "regime": global_state.market_regime,
-            "position": global_state.price_position
-        },
-        "agents": {
-            "critic_confidence": global_state.critic_confidence,
-            "guardian_status": global_state.guardian_status,
-            "symbol_selector": getattr(global_state, 'symbol_selector', {}),
-            "agent_messages": global_state.agent_messages # [NEW] Chatroom messages
-        },
-        "account": account_payload,
-        "virtual_account": {
-            "is_test_mode": global_state.is_test_mode,
-            "initial_balance": global_state.virtual_initial_balance,
-            "current_balance": global_state.virtual_balance,
-            "available_balance": global_state.virtual_balance - sum((pos.get('position_value', 0) / pos.get('leverage', 1)) for pos in global_state.virtual_positions.values()),
-            "positions": global_state.virtual_positions,
-            "total_unrealized_pnl": sum(pos.get('unrealized_pnl', 0) for pos in global_state.virtual_positions.values()),
-            "cumulative_realized_pnl": global_state.cumulative_realized_pnl  # Total realized PnL from closed trades
-        },
-        "account_alert": {
-            "active": global_state.account_alert_active,
-            "failure_count": global_state.account_failure_count
-        },
-        "chart_data": {
-            "equity": global_state.equity_history,
-            "balance_history": global_state.balance_history,
-            "initial_balance": global_state.initial_balance
-        },
-        "decision": global_state.latest_decision,
-        "decision_history": global_state.decision_history[:10],
-        "trade_history": global_state.trade_history[:200],
-        "logs": logs_tail,
-        "logs_simplified": simplified_logs,
-        "llm_info": global_state.llm_info,
-        "agent_prompts": global_state.agent_prompts
-    }
-    return clean_nans(global_state._serialize_obj(data))
+        data = {
+            "system": {
+                "running": global_state.is_running,
+                "mode": global_state.execution_mode,
+                "is_test_mode": global_state.is_test_mode,
+                "cycle_counter": global_state.cycle_counter,
+                "cycle_interval": global_state.cycle_interval,
+                "current_cycle_id": global_state.current_cycle_id,
+                "uptime_start": global_state.start_time,
+                "last_heartbeat": global_state.last_update,
+                "symbols": global_state.symbols,  # 🆕 Active trading symbols (AI500 Top5 support)
+                "timeframes": timeframes,
+                "current_symbol": getattr(global_state, 'current_symbol', '')
+            },
+            "demo": {
+                "demo_mode_active": global_state.demo_mode_active,
+                "demo_expired": global_state.demo_expired,
+                "demo_time_remaining": int(demo_time_remaining)
+            },
+            "market": {
+                "price": global_state.current_price,
+                "regime": global_state.market_regime,
+                "position": global_state.price_position
+            },
+            "agents": {
+                "critic_confidence": global_state.critic_confidence,
+                "guardian_status": global_state.guardian_status,
+                "symbol_selector": getattr(global_state, 'symbol_selector', {}),
+                "agent_messages": global_state.agent_messages  # [NEW] Chatroom messages
+            },
+            "account": account_payload,
+            "virtual_account": {
+                "is_test_mode": global_state.is_test_mode,
+                "initial_balance": global_state.virtual_initial_balance,
+                "current_balance": global_state.virtual_balance,
+                "available_balance": global_state.virtual_balance - sum((pos.get('position_value', 0) / pos.get('leverage', 1)) for pos in global_state.virtual_positions.values()),
+                "positions": global_state.virtual_positions,
+                "total_unrealized_pnl": sum(pos.get('unrealized_pnl', 0) for pos in global_state.virtual_positions.values()),
+                "cumulative_realized_pnl": global_state.cumulative_realized_pnl  # Total realized PnL from closed trades
+            },
+            "account_alert": {
+                "active": global_state.account_alert_active,
+                "failure_count": global_state.account_failure_count
+            },
+            "chart_data": {
+                "equity": global_state.equity_history,
+                "balance_history": global_state.balance_history,
+                "initial_balance": global_state.initial_balance
+            },
+            "decision": global_state.latest_decision,
+            "decision_history": global_state.decision_history[:10],
+            "trade_history": global_state.trade_history[:200],
+            "logs": logs_tail,
+            "logs_simplified": simplified_logs,
+            "llm_info": global_state.llm_info,
+            "agent_prompts": global_state.agent_prompts
+        }
+        return clean_nans(global_state._serialize_obj(data))
 
 @app.post("/api/control")
 async def control_bot(cmd: ControlCommand, authenticated: bool = Depends(verify_admin)):
@@ -753,21 +754,22 @@ async def update_agent_config(data: dict = Body(...), authenticated: bool = Depe
 
     current = getattr(global_state, 'agent_config', None) or config_manager._get_agents_config()
     merged = {**current, **filtered}
+    normalized = AgentConfig.from_dict({'agents': merged}).get_enabled_agents()
 
     # Update global state with new agent config
-    global_state.agent_config = merged
+    global_state.agent_config = normalized
     # Persist to config.yaml for next restart and export env flags
-    config_manager._update_agents_config(merged)
+    config_manager._update_agents_config(normalized)
     
     # Log the change
-    enabled = [k for k, v in merged.items() if v]
-    disabled = [k for k, v in merged.items() if not v]
+    enabled = [k for k, v in normalized.items() if v]
+    disabled = [k for k, v in normalized.items() if not v]
     global_state.add_log(f"🔧 Agent config updated: {len(enabled)} enabled, {len(disabled)} disabled")
     
     return {
         "status": "success",
         "message": f"Agent configuration updated. Enabled: {', '.join(enabled) if enabled else 'none'}",
-        "agents": merged
+        "agents": normalized
     }
 
 @app.get("/api/agents/config")

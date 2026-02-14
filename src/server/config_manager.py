@@ -222,24 +222,10 @@ class ConfigManager:
     def _get_agents_config(self) -> Dict[str, bool]:
         """Read agents configuration from config.yaml, return defaults if not found"""
         import yaml
+        from src.agents.agent_config import AgentConfig
         
-        # Default values (UI defaults for optional agents)
-        defaults = {
-            "predict_agent": True,
-            "ai_prediction_filter_agent": True,
-            "regime_detector_agent": True,
-            "position_analyzer_agent": True,
-            "trigger_detector_agent": True,
-            "trend_agent_llm": False,
-            "setup_agent_llm": False,
-            "trigger_agent_llm": False,
-            "trend_agent_local": True,
-            "setup_agent_local": True,
-            "trigger_agent_local": True,
-            "reflection_agent_llm": False,
-            "reflection_agent_local": True,
-            "symbol_selector_agent": True
-        }
+        # Default values come from AgentConfig to avoid drift.
+        defaults = AgentConfig().get_enabled_agents()
         
         try:
             config_yaml_path = os.path.join(self.root_dir, 'config.yaml')

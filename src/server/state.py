@@ -3,6 +3,7 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
 import json
+import threading
 
 @dataclass
 class SharedState:
@@ -96,38 +97,40 @@ class SharedState:
     agent_prompts: Dict[str, str] = field(default_factory=dict)
     llm_info: Dict[str, str] = field(default_factory=dict)
     agent_settings: Dict[str, Any] = field(default_factory=dict)
+    _lock: threading.RLock = field(default_factory=threading.RLock, init=False, repr=False)
+
+    def locked(self):
+        """Expose state lock for atomic external read/write blocks."""
+        return self._lock
     
     def update_market(self, symbol: str, price: float, regime: str, position: str):
-        self.current_price[symbol] = price
-        self.market_regime[symbol] = regime
-        self.price_position[symbol] = position
-        self.last_update = datetime.now().strftime("%H:%M:%S")
+        with self._lock:
+            self.current_price[symbol] = price
+            self.market_regime[symbol] = regime
+            self.price_position[symbol] = position
+            self.last_update = datetime.now().strftime("%H:%M:%S")
 
     def update_account(self, equity: float, available: float, wallet: float, pnl: float):
-        self.account_overview = {
-            "total_equity": equity,
-            "available_balance": available,
-            "wallet_balance": wallet,
-            "total_pnl": pnl
-        }
-        # Add to history (Real-time PnL tracking)
-        # We want to capture volatility, so we log more frequently.
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        # Add point if history is empty or last point is older than 5 seconds to prevent flood
-        # For simplicity, we just check if timestamp is different (1s resolution) but maybe throttle slightly if needed.
-        # Let's just append. The frontend handles the curve.
-        
-        if not self.equity_history or self.equity_history[-1]['time'] != timestamp:
-            self.equity_history.append({
-                'time': timestamp, 
-                'value': equity,
-                'cycle': self.cycle_counter
-            })
-            
-            # Keep last 200 points (e.g. ~10-20 mins of real-time data or 200 minutes of slow data)
-            if len(self.equity_history) > 200:
-                self.equity_history.pop(0)
+        with self._lock:
+            self.account_overview = {
+                "total_equity": equity,
+                "available_balance": available,
+                "wallet_balance": wallet,
+                "total_pnl": pnl
+            }
+            # Add to history (Real-time PnL tracking)
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            if not self.equity_history or self.equity_history[-1]['time'] != timestamp:
+                self.equity_history.append({
+                    'time': timestamp,
+                    'value': equity,
+                    'cycle': self.cycle_counter
+                })
+
+                # Keep last 200 points (e.g. ~10-20 mins of real-time data or 200 minutes of slow data)
+                if len(self.equity_history) > 200:
+                    self.equity_history.pop(0)
 
     def _serialize_obj(self, obj):
         """Recursively serialize non-JSON-compatible types (datetime, numpy, pd.Timestamp)"""
@@ -158,157 +161,165 @@ class SharedState:
         
         # Clean non-serializable objects to prevent JSON errors
         decision = self._serialize_obj(decision)
-        
-        symbol = decision.get('symbol', 'UNKNOWN')
-        self.latest_decision[symbol] = decision
-        self.critic_confidence[symbol] = decision.get('confidence', 0.0)
-        
-        # Add timestamp to decision if not present
-        if 'timestamp' not in decision:
-            decision['timestamp'] = datetime.now().strftime("%H:%M:%S")
-            
-        # Add to history
-        self.decision_history.insert(0, decision)  # Prepend
-        if len(self.decision_history) > 100:
-            self.decision_history.pop()
-        
-        self.last_update = datetime.now().strftime("%H:%M:%S")
+        with self._lock:
+            symbol = decision.get('symbol', 'UNKNOWN')
+            self.latest_decision[symbol] = decision
+            self.critic_confidence[symbol] = decision.get('confidence', 0.0)
+
+            # Add timestamp to decision if not present
+            if 'timestamp' not in decision:
+                decision['timestamp'] = datetime.now().strftime("%H:%M:%S")
+
+            # Add to history
+            self.decision_history.insert(0, decision)  # Prepend
+            if len(self.decision_history) > 100:
+                self.decision_history.pop()
+
+            self.last_update = datetime.now().strftime("%H:%M:%S")
 
     def add_agent_message(self, agent: str, content: str, role: str = "assistant", level: str = "info", symbol: Optional[str] = None):
         """Add a message to the multi-agent chatroom"""
-        # Avoid duplicate spam within the same cycle
-        last_content = self.last_agent_message.get(agent)
-        last_cycle = self.last_agent_message_cycle.get(agent)
-        if last_content == content and last_cycle == self.cycle_counter:
-            return
+        with self._lock:
+            # Avoid duplicate spam within the same cycle
+            last_content = self.last_agent_message.get(agent)
+            last_cycle = self.last_agent_message_cycle.get(agent)
+            if last_content == content and last_cycle == self.cycle_counter:
+                return
 
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        message = {
-            "timestamp": timestamp,
-            "agent": agent,
-            "content": content,
-            "role": role,
-            "level": level,
-            "symbol": symbol or self.current_symbol,
-            "cycle": self.cycle_counter
-        }
-        self.agent_messages.append(message)
-        # Keep last 100 messages
-        if len(self.agent_messages) > 100:
-            self.agent_messages.pop(0)
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            message = {
+                "timestamp": timestamp,
+                "agent": agent,
+                "content": content,
+                "role": role,
+                "level": level,
+                "symbol": symbol or self.current_symbol,
+                "cycle": self.cycle_counter
+            }
+            self.agent_messages.append(message)
+            # Keep last 100 messages
+            if len(self.agent_messages) > 100:
+                self.agent_messages.pop(0)
 
-        self.last_agent_message[agent] = content
-        self.last_agent_message_cycle[agent] = self.cycle_counter
+            self.last_agent_message[agent] = content
+            self.last_agent_message_cycle[agent] = self.cycle_counter
         
         # Also log to system logs
         self.add_log(f"[{agent.upper()}] {content}")
 
     def clear_agent_messages(self):
         """Clear chatroom messages for a new cycle"""
-        self.agent_messages = []
-        self.last_agent_message = {}
-        self.last_agent_message_cycle = {}
+        with self._lock:
+            self.agent_messages = []
+            self.last_agent_message = {}
+            self.last_agent_message_cycle = {}
     
     def init_balance(self, balance: float, initial_balance: Optional[float] = None):
         """Initialize the starting balance for tracking."""
-        if initial_balance is None:
-            initial_balance = balance
-        self.initial_balance = initial_balance
-        if self.is_test_mode:
-            self.virtual_initial_balance = initial_balance
-            self.virtual_balance = balance
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        # Add initial point to balance history
-        self.balance_history.append({
-            'time': timestamp,
-            'balance': balance,
-            'pnl': 0.0,
-            'pnl_pct': 0.0,
-            'action': 'INIT',
-            'cycle': 0
-        })
-        # Add initial point to equity history (for Net Value Curve)
-        self.equity_history.append({
-            'time': timestamp,
-            'value': balance,
-            'cycle': 0
-        })
+        with self._lock:
+            if initial_balance is None:
+                initial_balance = balance
+            self.initial_balance = initial_balance
+            if self.is_test_mode:
+                self.virtual_initial_balance = initial_balance
+                self.virtual_balance = balance
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # Add initial point to balance history
+            self.balance_history.append({
+                'time': timestamp,
+                'balance': balance,
+                'pnl': 0.0,
+                'pnl_pct': 0.0,
+                'action': 'INIT',
+                'cycle': 0
+            })
+            # Add initial point to equity history (for Net Value Curve)
+            self.equity_history.append({
+                'time': timestamp,
+                'value': balance,
+                'cycle': 0
+            })
         log.info(f"[📊 SYSTEM] Balance tracking initialized: ${balance:.2f}")
     
     def record_trade(self, trade: Dict):
         """Record a trade and update balance history."""
-        # Add to trade history
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        trade['recorded_at'] = timestamp
-        self.trade_history.insert(0, trade)  # Prepend (newest first)
-        
-        # Keep last 100 trades
-        if len(self.trade_history) > 100:
-            self.trade_history.pop()
-        
-        # Update balance based on trade result
-        current_balance = self.virtual_balance if self.is_test_mode else self.account_overview.get('total_equity', 0)
-        pnl = trade.get('pnl', 0.0)
-        
-        # Accumulate realized PnL from closed trades
-        if pnl != 0:
-            self.cumulative_realized_pnl += pnl
-            log.info(f"📊 Realized PnL updated: +${pnl:.2f}, Total: ${self.cumulative_realized_pnl:.2f}")
-        
-        # Calculate cumulative PnL (for balance history)
-        cumulative_pnl = current_balance - self.initial_balance if self.initial_balance > 0 else 0
-        pnl_pct = (cumulative_pnl / self.initial_balance * 100) if self.initial_balance > 0 else 0
-        
-        # Add to balance history
-        self.balance_history.append({
-            'time': timestamp,
-            'balance': current_balance,
-            'pnl': cumulative_pnl,
-            'pnl_pct': pnl_pct,
-            'action': trade.get('action', 'TRADE'),
-            'symbol': trade.get('symbol', ''),
-            'cycle': self.cycle_counter
-        })
-        
-        # Keep last 500 balance points
-        if len(self.balance_history) > 500:
-            self.balance_history.pop(0)
+        with self._lock:
+            # Add to trade history
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            trade['recorded_at'] = timestamp
+            self.trade_history.insert(0, trade)  # Prepend (newest first)
+
+            # Keep last 100 trades
+            if len(self.trade_history) > 100:
+                self.trade_history.pop()
+
+            # Update balance based on trade result
+            current_balance = self.virtual_balance if self.is_test_mode else self.account_overview.get('total_equity', 0)
+            pnl = trade.get('pnl', 0.0)
+
+            # Accumulate realized PnL from closed trades
+            if pnl != 0:
+                self.cumulative_realized_pnl += pnl
+                log.info(f"📊 Realized PnL updated: +${pnl:.2f}, Total: ${self.cumulative_realized_pnl:.2f}")
+
+            # Calculate cumulative PnL (for balance history)
+            cumulative_pnl = current_balance - self.initial_balance if self.initial_balance > 0 else 0
+            pnl_pct = (cumulative_pnl / self.initial_balance * 100) if self.initial_balance > 0 else 0
+
+            # Add to balance history
+            self.balance_history.append({
+                'time': timestamp,
+                'balance': current_balance,
+                'pnl': cumulative_pnl,
+                'pnl_pct': pnl_pct,
+                'action': trade.get('action', 'TRADE'),
+                'symbol': trade.get('symbol', ''),
+                'cycle': self.cycle_counter
+            })
+
+            # Keep last 500 balance points
+            if len(self.balance_history) > 500:
+                self.balance_history.pop(0)
     
     def record_account_success(self):
         """Record successful account info fetch"""
         import time
-        self.account_failure_count = 0
-        self.account_last_success_time = time.time()
-        self.account_alert_active = False
+        with self._lock:
+            self.account_failure_count = 0
+            self.account_last_success_time = time.time()
+            self.account_alert_active = False
     
     def record_account_failure(self):
         """Record failed account info fetch"""
         import time
-        self.account_failure_count += 1
-        
-        # Check if we should trigger alert (5 minutes = 300 seconds)
-        if self.account_last_success_time:
-            time_since_success = time.time() - self.account_last_success_time
-            if time_since_success >= 300 and not self.account_alert_active:
-                self.account_alert_active = True
-                log.error(f"⚠️ 账户信息获取失败已超过 5 分钟！连续失败次数: {self.account_failure_count}")
-        
-    def add_log(self, message: str):
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        # Ensure message has timestamp if not present
-        if not message.startswith("["):
-            message = f"[{timestamp}] {message}"
+        with self._lock:
+            self.account_failure_count += 1
             
-        self.recent_logs.append(message)
-        if len(self.recent_logs) > 500:
-            self.recent_logs.pop(0)
+            # Check if we should trigger alert (5 minutes = 300 seconds)
+            if self.account_last_success_time:
+                time_since_success = time.time() - self.account_last_success_time
+                if time_since_success >= 300 and not self.account_alert_active:
+                    self.account_alert_active = True
+                    log.error(f"⚠️ 账户信息获取失败已超过 5 分钟！连续失败次数: {self.account_failure_count}")
+    
+    def add_log(self, message: str):
+        with self._lock:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # Ensure message has timestamp if not present
+            if not message.startswith("["):
+                message = f"[{timestamp}] {message}"
+                
+            self.recent_logs.append(message)
+            if len(self.recent_logs) > 500:
+                self.recent_logs.pop(0)
     
     def clear_init_logs(self):
         """Clear initialization logs when Cycle 1 starts to sync with Recent Decisions."""
-        self.recent_logs.clear()
-        # Log the fresh start
-        msg = "[📊 SYSTEM] Cleared initialization logs - starting fresh from Cycle 1"
-        self.recent_logs.append(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
+        with self._lock:
+            self.recent_logs.clear()
+            # Log the fresh start
+            msg = "[📊 SYSTEM] Cleared initialization logs - starting fresh from Cycle 1"
+            self.recent_logs.append(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
         log.info(msg)
     
     def register_log_sink(self):
@@ -326,9 +337,10 @@ class SharedState:
             formatted = f"{time_str} | {level:<8} | {module}:{func} - {msg}"
             
             # Directly append to recent_logs
-            self.recent_logs.append(formatted)
-            if len(self.recent_logs) > 500:
-                self.recent_logs.pop(0)
+            with self._lock:
+                self.recent_logs.append(formatted)
+                if len(self.recent_logs) > 500:
+                    self.recent_logs.pop(0)
         
         # Add sink for INFO and above
         log.add(sink, level="INFO")

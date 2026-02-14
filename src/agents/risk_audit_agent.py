@@ -19,6 +19,13 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from src.utils.logger import log
+from src.utils.action_protocol import (
+    normalize_action,
+    is_open_action,
+    is_close_action,
+    is_long_action,
+    is_short_action,
+)
 
 
 class RiskLevel(Enum):
@@ -135,21 +142,22 @@ class RiskAuditAgent:
         warnings = []
         corrections = {}
         
-        action = decision.get('action', 'hold')
-        action_lower = action.lower() if isinstance(action, str) else 'hold'
-        is_long = action_lower in ['long', 'open_long']
-        is_short = action_lower in ['short', 'open_short']
+        position_side = current_position.side if current_position else None
+        action = normalize_action(decision.get('action', 'wait'), position_side=position_side)
+        decision['action'] = action
+        is_long = is_long_action(action)
+        is_short = is_short_action(action)
         symbol = decision.get('symbol')
         
         # 0. 如果是hold/wait，直接通过
-        if action_lower in ['hold', 'wait']:
+        if action in ['hold', 'wait']:
             return RiskCheckResult(
                 passed=True,
                 risk_level=RiskLevel.SAFE,
                 warnings=['观望中']
             )
 
-        if action in ['long', 'short', 'open_long', 'open_short', 'add_position'] and account_balance <= 0:
+        if (is_open_action(action) or action == 'add_position') and account_balance <= 0:
             return self._block_decision('insufficient_margin_blocks', f"账户余额无效({account_balance:.2f})，无法开仓")
 
         # 0.1 对抗式数据提取 (Market Awareness)
@@ -374,7 +382,7 @@ class RiskAuditAgent:
                 )
         
         # 2. 【致命修正】止损方向检查
-        if action in ['long', 'short']:
+        if is_open_action(action):
             stop_loss_check = self._check_and_fix_stop_loss(
                 action=action,
                 entry_price=decision.get('entry_price', current_price),
@@ -487,7 +495,7 @@ class RiskAuditAgent:
         规则: 同一个symbol如果已经持有仓位，禁止再次开仓 (long/short)。
         只允许 close/add/reduce 相关操作 (目前仅支持单一仓位，所以add暂不支持或需特殊处理)
         """
-        if action in ['long', 'open_long', 'short', 'open_short']:
+        if is_open_action(action):
             # 只要是开仓动作，且当前有仓位 -> 拦截
             return {
                 'passed': False,
@@ -506,13 +514,13 @@ class RiskAuditAgent:
         
         例如: 已有多单，又尝试开空单
         """
-        if action == 'long' and current_position.side == 'short':
+        if is_long_action(action) and current_position.side == 'short':
             return {
                 'passed': False,
                 'reason': f"【致命风险】持有{current_position.side}仓位时禁止开{action}仓"
             }
         
-        if action == 'short' and current_position.side == 'long':
+        if is_short_action(action) and current_position.side == 'long':
             return {
                 'passed': False,
                 'reason': f"【致命风险】持有{current_position.side}仓位时禁止开{action}仓"
@@ -559,10 +567,10 @@ class RiskAuditAgent:
         
         if not stop_loss:
             # 没有设置止损，使用动态止损距离
-            default_stop = (
-                entry_price * (1 - dynamic_stop_pct) if action == 'long' 
-                else entry_price * (1 + dynamic_stop_pct)
-            )
+            if is_long_action(action):
+                default_stop = entry_price * (1 - dynamic_stop_pct)
+            else:
+                default_stop = entry_price * (1 + dynamic_stop_pct)
             return {
                 'passed': False,
                 'can_fix': True,
@@ -571,7 +579,7 @@ class RiskAuditAgent:
             }
         
         # 做多检查
-        if action == 'long':
+        if is_long_action(action):
             if stop_loss >= entry_price:
                 # 止损方向错误，使用动态止损修正
                 corrected = entry_price * (1 - dynamic_stop_pct)
@@ -603,7 +611,7 @@ class RiskAuditAgent:
                 }
         
         # 做空检查
-        if action == 'short':
+        if is_short_action(action):
             if stop_loss <= entry_price:
                 # 止损方向错误，使用动态止损修正
                 corrected = entry_price * (1 + dynamic_stop_pct)
@@ -650,7 +658,7 @@ class RiskAuditAgent:
         计算公式:
         所需保证金 = (数量 * 入场价) / 杠杆
         """
-        if action in ['close_long', 'close_short', 'hold']:
+        if is_close_action(action) or action in ['hold', 'wait']:
             return {'passed': True}
         
         required_margin = (quantity * entry_price) / leverage
@@ -707,7 +715,7 @@ class RiskAuditAgent:
         风险敞口 = |入场价 - 止损价| * 数量
         风险占比 = 风险敞口 / 账户余额
         """
-        if not stop_loss or action in ['close_long', 'close_short', 'hold']:
+        if not stop_loss or is_close_action(action) or action in ['hold', 'wait']:
             return {'passed': True}
 
         if account_balance <= 0:
@@ -737,9 +745,9 @@ class RiskAuditAgent:
         3. 高位无量 -> 诱多，拦截做多
         """
         traps = decision.get('traps') or {}
-        action = decision.get('action', 'hold')
+        action = normalize_action(decision.get('action', 'wait'))
         
-        if action not in ['long', 'open_long']:
+        if not is_long_action(action):
             return {'passed': True}
             
         # 1. 诱多风险 (Rapid Rise, Slow Fall)

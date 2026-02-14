@@ -71,6 +71,11 @@ from src.exchanges import AccountManager, ExchangeAccount, ExchangeType  # ✅ M
 from src.features.technical_features import TechnicalFeatureEngineer
 from src.server.state import global_state
 from src.utils.semantic_converter import SemanticConverter  # ✅ Global Import
+from src.utils.action_protocol import (
+    normalize_action,
+    is_open_action,
+    is_close_action,
+)
 from src.agents.regime_detector_agent import RegimeDetector  # ✅ Market Regime Detection
 from src.config import Config # Re-added Config as it's used later
 
@@ -743,8 +748,9 @@ class MultiAgentTradingBot:
         from src.agents.agent_config import AgentConfig
 
         self.agent_config = AgentConfig.from_dict({'agents': agents})
-        self._last_agent_config = dict(agents)
-        global_state.agent_config = self.agent_config.get_enabled_agents()
+        normalized_agents = self.agent_config.get_enabled_agents()
+        self._last_agent_config = dict(normalized_agents)
+        global_state.agent_config = normalized_agents
 
         # Optional Agent: RegimeDetector
         if self.agent_config.regime_detector_agent:
@@ -1224,6 +1230,7 @@ class MultiAgentTradingBot:
             # ✅ 使用 run_continuous 中已设置的周期信息
             cycle_num = global_state.cycle_counter
             cycle_id = global_state.current_cycle_id
+            loop = asyncio.get_running_loop()
             
             # 每个币种的子日志
             global_state.add_log(f"[📊 SYSTEM] {self.current_symbol} analysis started")
@@ -1987,7 +1994,7 @@ class MultiAgentTradingBot:
                     
                     # Initialize agents (cached after first use)
                     tasks = {}
-                    loop = asyncio.get_event_loop()
+                    loop = asyncio.get_running_loop()
                     if use_trend:
                         if use_trend_llm:
                             from src.agents.trend_agent import TrendAgentLLM
@@ -2302,6 +2309,10 @@ class MultiAgentTradingBot:
                     'stance': 'NEUTRAL',
                     'bearish_reasons': 'N/A'
                 }
+            decision_payload['action'] = normalize_action(
+                decision_payload.get('action'),
+                position_side=(current_position_info or {}).get('side')
+            )
             
             # 转换为 VoteResult 兼容格式
             # (Need to check if i need to include rest of the function)
@@ -2532,7 +2543,8 @@ class MultiAgentTradingBot:
             order_params = self._build_order_params(
                 action=vote_result.action,
                 current_price=current_price,
-                confidence=vote_result.confidence
+                confidence=vote_result.confidence,
+                position_info=current_position_info
             )
             order_params['symbol'] = self.current_symbol
             
@@ -2860,10 +2872,10 @@ class MultiAgentTradingBot:
                 # ✅ Save Trade in persistent history
                 # Logic Update: If CLOSING, try to update previous OPEN record. If failing, save new.
                 
-                is_close_action = 'close' in vote_result.action.lower()
+                is_close_trade_action = 'close' in vote_result.action.lower()
                 update_success = False
                 
-                if is_close_action:
+                if is_close_trade_action:
                     update_success = self.saver.update_trade_exit(
                         symbol=self.current_symbol,
                         exit_price=exit_test_price,
@@ -2889,19 +2901,19 @@ class MultiAgentTradingBot:
                 
                 # Only save NEW record if it's OPEN action OR if Update Failed (Fallback)
                 if not update_success:
-                    is_open_action = 'open' in order_params['action'].lower()
+                    is_open_trade_action = 'open' in order_params['action'].lower()
                     
                     # For CLOSE actions, find the original open_cycle from trade_history
                     original_open_cycle = 0
-                    if not is_open_action:
+                    if not is_open_trade_action:
                         for trade in global_state.trade_history:
                             if trade.get('symbol') == self.current_symbol and trade.get('exit_price', 0) == 0:
                                 original_open_cycle = trade.get('open_cycle', 0)
                                 break
                     
                     trade_record = {
-                        'open_cycle': global_state.cycle_counter if is_open_action else original_open_cycle,
-                        'close_cycle': 0 if is_open_action else global_state.cycle_counter,
+                        'open_cycle': global_state.cycle_counter if is_open_trade_action else original_open_cycle,
+                        'close_cycle': 0 if is_open_trade_action else global_state.cycle_counter,
                         'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         'action': order_params['action'].upper(),
                         'symbol': self.current_symbol,
@@ -2914,7 +2926,7 @@ class MultiAgentTradingBot:
                         'status': 'SIMULATED',
                         'cycle': cycle_id
                     }
-                    if is_close_action:
+                    if is_close_trade_action:
                          trade_record['status'] = 'CLOSED (Fallback)'
                          
                     self.saver.save_trade(trade_record)
@@ -2995,7 +3007,7 @@ class MultiAgentTradingBot:
                 pnl = 0.0
                 exit_price = 0.0
                 entry_price = order_params['entry_price']
-                if order_params['action'] == 'close_position' and current_position:
+                if is_close_action(order_params.get('action')) and current_position:
                     exit_price = current_price
                     entry_price = current_position.entry_price
                     # PnL = (Exit - Entry) * Qty (Multiplied by 1 if long, -1 if short)
@@ -3005,10 +3017,10 @@ class MultiAgentTradingBot:
                 # ✅ Save Trade in persistent history
                 # Logic Update: If CLOSING, try to update previous OPEN record. If failing, save new.
                 
-                is_close_action = 'close' in order_params['action'].lower()
+                is_close_trade_action = 'close' in order_params['action'].lower()
                 update_success = False
                 
-                if is_close_action:
+                if is_close_trade_action:
                     update_success = self.saver.update_trade_exit(
                         symbol=self.current_symbol,
                         exit_price=exit_price,
@@ -3033,19 +3045,19 @@ class MultiAgentTradingBot:
                         log.info(f"📊 Cumulative Realized PnL: ${global_state.cumulative_realized_pnl:.2f}")
                 
                 if not update_success:
-                    is_open_action = 'open' in order_params['action'].lower()
+                    is_open_trade_action = 'open' in order_params['action'].lower()
                     
                     # For CLOSE actions, find the original open_cycle from trade_history
                     original_open_cycle = 0
-                    if not is_open_action:
+                    if not is_open_trade_action:
                         for trade in global_state.trade_history:
                             if trade.get('symbol') == self.current_symbol and trade.get('exit_price', 0) == 0:
                                 original_open_cycle = trade.get('open_cycle', 0)
                                 break
                     
                     trade_record = {
-                        'open_cycle': global_state.cycle_counter if is_open_action else original_open_cycle,
-                        'close_cycle': 0 if is_open_action else global_state.cycle_counter,
+                        'open_cycle': global_state.cycle_counter if is_open_trade_action else original_open_cycle,
+                        'close_cycle': 0 if is_open_trade_action else global_state.cycle_counter,
                         'action': order_params['action'].upper(),
                         'symbol': self.current_symbol,
                         'price': entry_price,
@@ -3057,7 +3069,7 @@ class MultiAgentTradingBot:
                         'status': 'EXECUTED',
                         'cycle': cycle_id
                     }
-                    if is_close_action:
+                    if is_close_trade_action:
                          trade_record['status'] = 'CLOSED (Fallback)'
                          
                     self.saver.save_trade(trade_record)
@@ -3095,19 +3107,22 @@ class MultiAgentTradingBot:
         self, 
         action: str, 
         current_price: float,
-        confidence: float
+        confidence: float,
+        position_info: Optional[Dict] = None
     ) -> Dict:
         """
         构建订单参数
         
         Args:
-            action: 'long' or 'short'
+            action: trading action
             current_price: 当前价格
             confidence: 决策置信度 (0-100)
         
         Returns:
             订单参数字典
         """
+        action = normalize_action(action, position_side=(position_info or {}).get('side'))
+
         # 获取可用余额
         if self.test_mode:
             available_balance = global_state.virtual_balance
@@ -3127,15 +3142,24 @@ class MultiAgentTradingBot:
         adjusted_position = available_balance * position_pct
         
         # 计算数量
-        quantity = adjusted_position / current_price
+        quantity = adjusted_position / current_price if current_price > 0 else 0.0
+        if is_close_action(action):
+            if position_info and isinstance(position_info.get('quantity'), (int, float)):
+                quantity = float(position_info.get('quantity', 0) or 0)
+            elif self.test_mode:
+                pos = (global_state.virtual_positions or {}).get(self.current_symbol, {})
+                quantity = float(pos.get('quantity', 0) or 0)
         
         # 计算止损止盈
-        if action in ('long', 'open_long'):
+        if action == 'open_long':
             stop_loss = current_price * (1 - self.stop_loss_pct / 100)
             take_profit = current_price * (1 + self.take_profit_pct / 100)
-        else:  # short
+        elif action == 'open_short':
             stop_loss = current_price * (1 + self.stop_loss_pct / 100)
             take_profit = current_price * (1 - self.take_profit_pct / 100)
+        else:
+            stop_loss = current_price
+            take_profit = current_price
         
         return {
             'action': action,
@@ -3256,6 +3280,8 @@ class MultiAgentTradingBot:
         if not position_info:
             return None
         symbol = position_info.get('symbol') or self.current_symbol
+        side = str(position_info.get('side', '')).lower()
+        close_action = 'close_long' if side == 'long' else ('close_short' if side == 'short' else 'wait')
         pnl_pct = position_info.get('pnl_pct')
         if pnl_pct is None:
             return None
@@ -3275,14 +3301,14 @@ class MultiAgentTradingBot:
         if hold_cycles is not None and isinstance(max_hold_cycles, (int, float)):
             if hold_cycles >= int(max_hold_cycles):
                 return {
-                    'action': 'close_position',
+                    'action': close_action,
                     'confidence': 92,
                     'reasoning': f"Forced exit: holding cycles cap {int(max_hold_cycles)} hit ({hold_cycles} cycles, {hold_tag})"
                 }
         if hold_hours is not None and isinstance(max_hold_hours, (int, float)):
             if hold_hours >= float(max_hold_hours):
                 return {
-                    'action': 'close_position',
+                    'action': close_action,
                     'confidence': 92,
                     'reasoning': f"Forced exit: holding hours cap {float(max_hold_hours):.1f}h hit ({hold_tag})"
                 }
@@ -3290,7 +3316,7 @@ class MultiAgentTradingBot:
         # Immediate loss cut
         if pnl_pct <= -5:
             return {
-                'action': 'close_position',
+                'action': close_action,
                 'confidence': 95,
                 'reasoning': f"Forced exit: loss {pnl_pct:+.2f}% exceeds -5% cap (hold {hold_tag})"
             }
@@ -3299,13 +3325,13 @@ class MultiAgentTradingBot:
         if hold_hours is not None:
             if hold_hours >= 6 and pnl_pct < -1:
                 return {
-                    'action': 'close_position',
+                    'action': close_action,
                     'confidence': 90,
                     'reasoning': f"Forced exit: loss {pnl_pct:+.2f}% with stale hold {hold_tag}"
                 }
             if hold_hours >= 12 and pnl_pct <= 0.3:
                 return {
-                    'action': 'close_position',
+                    'action': close_action,
                     'confidence': 85,
                     'reasoning': f"Forced exit: capital tie-up {hold_tag} with low edge ({pnl_pct:+.2f}%)"
                 }
@@ -3442,6 +3468,119 @@ class MultiAgentTradingBot:
         except Exception as e:
             log.error(f"Failed to get positions: {e}")
             return None
+
+    def _execute_suggested_open_trade(self, symbol: str, suggested: Dict, cycle_id: str) -> Dict:
+        """Execute an already-audited open suggestion without re-running full analysis."""
+        order_params = dict((suggested or {}).get('order_params') or {})
+        if not order_params:
+            return {'status': 'failed', 'action': 'wait', 'details': {'error': 'missing_order_params'}}
+
+        action = normalize_action(order_params.get('action'))
+        if not is_open_action(action):
+            return {'status': 'failed', 'action': action, 'details': {'error': 'not_open_action'}}
+
+        order_params['action'] = action
+        order_params['symbol'] = symbol
+        self.current_symbol = symbol
+        global_state.current_symbol = symbol
+
+        try:
+            current_price = float(
+                suggested.get('current_price')
+                or order_params.get('entry_price')
+                or global_state.current_price.get(symbol, 0)
+                or 0
+            )
+        except (TypeError, ValueError):
+            current_price = 0.0
+        if current_price <= 0:
+            return {'status': 'failed', 'action': action, 'details': {'error': 'invalid_price'}}
+
+        if self.test_mode:
+            side = 'LONG' if action == 'open_long' else 'SHORT'
+            quantity = float(order_params.get('quantity', 0) or 0)
+            position_value = quantity * current_price
+            global_state.virtual_positions[symbol] = {
+                'entry_price': current_price,
+                'quantity': quantity,
+                'side': side,
+                'entry_time': datetime.now().isoformat(),
+                'stop_loss': order_params.get('stop_loss', 0),
+                'take_profit': order_params.get('take_profit', 0),
+                'leverage': order_params.get('leverage', 1),
+                'position_value': position_value,
+            }
+            self._save_virtual_state()
+
+            self.saver.save_execution({
+                'symbol': symbol,
+                'action': 'SIMULATED_EXECUTION',
+                'params': order_params,
+                'status': 'success',
+                'timestamp': datetime.now().isoformat(),
+                'cycle_id': cycle_id,
+            }, symbol, cycle_id=cycle_id)
+
+            trade_record = {
+                'open_cycle': global_state.cycle_counter,
+                'close_cycle': 0,
+                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                'action': action.upper(),
+                'symbol': symbol,
+                'entry_price': current_price,
+                'quantity': quantity,
+                'cost': position_value,
+                'exit_price': 0,
+                'pnl': 0.0,
+                'confidence': order_params.get('confidence'),
+                'status': 'SIMULATED',
+                'cycle': cycle_id,
+            }
+            self.saver.save_trade(trade_record)
+            global_state.trade_history.insert(0, trade_record)
+            if len(global_state.trade_history) > 50:
+                global_state.trade_history.pop()
+            global_state.cycle_positions_opened += 1
+            global_state.add_log(f"[🚀 EXECUTOR] Test: {action.upper()} {quantity} @ {current_price:.2f}")
+            return {'status': 'success', 'action': action, 'details': order_params, 'current_price': current_price}
+
+        is_success = self._execute_order(order_params)
+        self.saver.save_execution({
+            'symbol': symbol,
+            'action': 'REAL_EXECUTION',
+            'params': order_params,
+            'status': 'success' if is_success else 'failed',
+            'timestamp': datetime.now().isoformat(),
+            'cycle_id': cycle_id,
+        }, symbol, cycle_id=cycle_id)
+
+        if not is_success:
+            global_state.add_log(f"[🚀 EXECUTOR] Live: {action.upper()} => ❌ FAILED")
+            return {'status': 'failed', 'action': action, 'details': {'error': 'execution_failed'}}
+
+        quantity = float(order_params.get('quantity', 0) or 0)
+        trade_record = {
+            'open_cycle': global_state.cycle_counter,
+            'close_cycle': 0,
+            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'action': action.upper(),
+            'symbol': symbol,
+            'entry_price': current_price,
+            'quantity': quantity,
+            'cost': current_price * quantity,
+            'exit_price': 0,
+            'pnl': 0.0,
+            'confidence': order_params.get('confidence'),
+            'status': 'EXECUTED',
+            'cycle': cycle_id,
+        }
+        self.saver.save_trade(trade_record)
+        global_state.trade_history.insert(0, trade_record)
+        if len(global_state.trade_history) > 50:
+            global_state.trade_history.pop()
+        global_state.cycle_positions_opened += 1
+        global_state.add_log(f"[🚀 EXECUTOR] Live: {action.upper()} {quantity} => ✅ SENT")
+        return {'status': 'success', 'action': action, 'details': order_params, 'current_price': current_price}
     
     def _execute_order(self, order_params: Dict) -> bool:
         """
@@ -3454,6 +3593,14 @@ class MultiAgentTradingBot:
             是否成功
         """
         try:
+            current_pos = self._get_current_position()
+            pos_side = current_pos.side if current_pos else None
+            action = normalize_action(order_params.get('action'), position_side=pos_side)
+            order_params['action'] = action
+
+            if action in ('wait', 'hold'):
+                return True
+
             # 设置杠杆
             self.client.set_leverage(
                 symbol=self.current_symbol,
@@ -3461,7 +3608,16 @@ class MultiAgentTradingBot:
             )
             
             # 市价开仓
-            side = 'BUY' if order_params['action'] == 'long' else 'SELL'
+            if action == 'open_long':
+                side = 'BUY'
+            elif action == 'open_short':
+                side = 'SELL'
+            elif action == 'close_long':
+                side = 'SELL'
+            elif action == 'close_short':
+                side = 'BUY'
+            else:
+                return False
             order = self.client.place_futures_market_order(
                 symbol=self.current_symbol,
                 side=side,
@@ -3471,13 +3627,14 @@ class MultiAgentTradingBot:
             if not order:
                 return False
             
-            # 设置止损止盈
-            self.execution_engine.set_stop_loss_take_profit(
-                symbol=self.current_symbol,
-                position_side='LONG' if order_params['action'] == 'long' else 'SHORT',
-                stop_loss=order_params['stop_loss'],
-                take_profit=order_params['take_profit']
-            )
+            # 仅开仓动作设置止损止盈
+            if action in ('open_long', 'open_short'):
+                self.execution_engine.set_stop_loss_take_profit(
+                    symbol=self.current_symbol,
+                    position_side='LONG' if action == 'open_long' else 'SHORT',
+                    stop_loss=order_params['stop_loss'],
+                    take_profit=order_params['take_profit']
+                )
             
             return True
             
@@ -4125,11 +4282,15 @@ class MultiAgentTradingBot:
                     print(f"\n🎯 本周期最优开仓机会: {best_decision['symbol']} (信心度: {best_decision['confidence']:.1f}%)")
                     global_state.add_log(f"[🎯 SYSTEM] Best: {best_decision['symbol']} (Conf: {best_decision['confidence']:.1f}%)")
                     
-                    # 只执行最优的一个（重新运行完整执行流程）
+                    # 只执行最优的一个（直接执行已审计建议，避免重复跑完整流程）
                     try:
                         self.current_symbol = best_decision['symbol']
                         global_state.current_symbol = self.current_symbol
-                        exec_result = asyncio.run(self.run_trading_cycle(analyze_only=False))
+                        exec_result = self._execute_suggested_open_trade(
+                            symbol=self.current_symbol,
+                            suggested=best_decision['result'],
+                            cycle_id=cycle_id
+                        )
                         exec_action = exec_result.get('action', 'unknown')
                         exec_status = exec_result.get('status', 'unknown')
                         if exec_action and str(exec_action).lower() not in ('hold', 'wait', 'unknown'):
