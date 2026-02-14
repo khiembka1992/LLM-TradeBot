@@ -152,6 +152,7 @@ class RiskManager:
             (is_valid, modified_decision, reason)
         """
         modified_decision = decision.copy()
+        market_snapshot = market_snapshot or {}
         
         # 0. 格式验证 (最优先检查)
         format_valid, format_error = self.validate_format(decision)
@@ -309,9 +310,6 @@ class RiskManager:
                     if rr_ratio < 1.5: # 至少 1.5 倍
                         return False, decision, f"风控拦截: 风险回报比不足({rr_ratio:.2f} < 1.5)"
 
-        # 5. 基础账户风险检查
-        balance = account_info.get('total_wallet_balance', 0)
-        
         # 1. 检查连续亏损
         if self.consecutive_losses >= self.max_consecutive_losses:
             if is_open_action(action):
