@@ -10,6 +10,17 @@ from dataclasses import dataclass, field
 from typing import Dict, Optional, Any
 
 
+def _default_timeouts() -> Dict[str, float]:
+    """Default timeout policy (seconds) for runtime agent tasks."""
+    return {
+        'quant_analyst': 25.0,
+        'predict_agent': 30.0,
+        'reflection_agent': 45.0,
+        'semantic_agent': 35.0,
+        'llm_perspective': 45.0,
+    }
+
+
 @dataclass
 class AgentConfig:
     """
@@ -51,11 +62,35 @@ class AgentConfig:
     # Symbol Selection
     symbol_selector_agent: bool = True       # SymbolSelectorAgent: AUTO3/AUTO1 selection
     
+    # Runtime policy
+    timeouts: Dict[str, float] = field(default_factory=_default_timeouts)
+    
     def __post_init__(self):
         """Validate dependencies between agents"""
         # AIPredictionFilterAgent requires PredictAgent
         if self.ai_prediction_filter_agent and not self.predict_agent:
             self.ai_prediction_filter_agent = False
+        self.timeouts = self._normalize_timeouts(self.timeouts)
+
+    @staticmethod
+    def _normalize_timeouts(raw: Any) -> Dict[str, float]:
+        """Normalize timeout config to a positive-float map."""
+        normalized = _default_timeouts()
+        if not isinstance(raw, dict):
+            return normalized
+        for key, value in raw.items():
+            if key is None:
+                continue
+            name = str(key).strip()
+            if not name:
+                continue
+            try:
+                timeout_val = float(value)
+            except (TypeError, ValueError):
+                continue
+            if timeout_val > 0:
+                normalized[name] = timeout_val
+        return normalized
     
     @classmethod
     def from_dict(cls, config: Dict[str, Any]) -> 'AgentConfig':
@@ -73,6 +108,8 @@ class AgentConfig:
         """
         import os
         agents_config = config.get('agents', {})
+        if not isinstance(agents_config, dict):
+            agents_config = {}
 
         def get_value_optional(key: str) -> Optional[bool]:
             """Get value from env var (priority) or config or None if unset"""
@@ -98,6 +135,23 @@ class AgentConfig:
             if legacy_val is not None:
                 return bool(legacy_val)
             return default
+
+        def resolve_timeouts() -> Dict[str, float]:
+            configured = agents_config.get('timeouts', {})
+            merged = cls._normalize_timeouts(configured)
+            keys = set(merged.keys()) | set((configured or {}).keys())
+            for key in keys:
+                env_key = f"AGENT_TIMEOUT_{str(key).upper()}"
+                env_val = os.environ.get(env_key)
+                if env_val is None:
+                    continue
+                try:
+                    parsed = float(env_val)
+                except (TypeError, ValueError):
+                    continue
+                if parsed > 0:
+                    merged[str(key)] = parsed
+            return merged
         
         # Map config keys to dataclass fields
         return cls(
@@ -115,6 +169,7 @@ class AgentConfig:
             reflection_agent_llm=resolve_llm_flag('reflection_agent_llm', 'reflection_agent', False),
             reflection_agent_local=resolve_flag('reflection_agent_local', True),
             symbol_selector_agent=resolve_flag('symbol_selector_agent', True),
+            timeouts=resolve_timeouts(),
         )
     
     def is_enabled(self, agent_name: str) -> bool:
@@ -157,4 +212,14 @@ class AgentConfig:
     def __str__(self) -> str:
         enabled = [k for k, v in self.get_enabled_agents().items() if v]
         disabled = [k for k, v in self.get_enabled_agents().items() if not v]
-        return f"AgentConfig(enabled={enabled}, disabled={disabled})"
+        return f"AgentConfig(enabled={enabled}, disabled={disabled}, timeouts={self.timeouts})"
+
+    def get_timeout(self, key: str, default: float) -> float:
+        """Get normalized timeout for a runtime task."""
+        try:
+            val = float((self.timeouts or {}).get(key, default))
+            if val > 0:
+                return val
+        except (TypeError, ValueError):
+            pass
+        return float(default)

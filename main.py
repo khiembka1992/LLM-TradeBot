@@ -52,7 +52,7 @@ else:
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
 
-from typing import Dict, Optional, List, Any
+from typing import Dict, Optional, List, Any, Tuple
 from datetime import datetime
 import json
 import time
@@ -101,7 +101,8 @@ from src.agents import (
     PositionInfo,
     ReflectionAgent,
     ReflectionAgentLLM,
-    MultiPeriodParserAgent
+    MultiPeriodParserAgent,
+    AgentRegistry
 )
 print("[DEBUG] Importing StrategyEngine...")
 from src.strategy.llm_engine import StrategyEngine
@@ -110,6 +111,7 @@ from src.agents.predict_agent import PredictAgent
 from src.agents.contracts import SuggestedTrade
 print("[DEBUG] Importing symbol_selector_agent...")
 from src.agents.symbol_selector_agent import get_selector  # 🔝 AUTO3 Support
+from src.agents.runtime_events import emit_runtime_event
 print("[DEBUG] Importing server.app...")
 from src.server.app import app
 print("[DEBUG] Importing global_state...")
@@ -288,6 +290,10 @@ class MultiAgentTradingBot:
         print(f"  📋 Agent Config: {self.agent_config}")
         global_state.agent_config = self.agent_config.get_enabled_agents()
         self._last_agent_config = dict(global_state.agent_config)
+        self.agent_registry = AgentRegistry(self.agent_config)
+        self.agent_registry.register_class('regime_detector_agent', RegimeDetector)
+        self.agent_registry.register_class('reflection_agent_llm', ReflectionAgentLLM)
+        self.agent_registry.register_class('reflection_agent_local', ReflectionAgent)
         
         # Core Agents (always enabled)
         self.data_sync_agent = DataSyncAgent(self.client)
@@ -310,11 +316,11 @@ class MultiAgentTradingBot:
         # 🆕 Optional Agent: RegimeDetectorAgent
         self.regime_detector = None
         if self.agent_config.regime_detector_agent:
-            print("[DEBUG] Creating RegimeDetector...")
-            from src.agents.regime_detector_agent import RegimeDetector
-            self.regime_detector = RegimeDetector()
-            print("[DEBUG] RegimeDetector created")
-            print("  ✅ RegimeDetectorAgent ready")
+            self.regime_detector = self.agent_registry.get('regime_detector_agent')
+            if self.regime_detector is not None:
+                print("  ✅ RegimeDetectorAgent ready")
+            else:
+                print("  ⚠️ RegimeDetectorAgent init failed")
         else:
             print("  ⏭️ RegimeDetectorAgent disabled")
         
@@ -346,14 +352,18 @@ class MultiAgentTradingBot:
         # 🆕 Optional Agent: ReflectionAgent
         self.reflection_agent = None
         if self.agent_config.reflection_agent_llm or self.agent_config.reflection_agent_local:
-            print("[DEBUG] Creating ReflectionAgent...")
             if self.agent_config.reflection_agent_llm:
-                self.reflection_agent = ReflectionAgentLLM()
-                print("  ✅ ReflectionAgentLLM ready")
+                self.reflection_agent = self.agent_registry.get('reflection_agent_llm')
+                if self.reflection_agent is not None:
+                    print("  ✅ ReflectionAgentLLM ready")
+                else:
+                    print("  ⚠️ ReflectionAgentLLM init failed")
             else:
-                self.reflection_agent = ReflectionAgent()
-                print("  ✅ ReflectionAgent ready (no LLM)")
-            print("[DEBUG] ReflectionAgent created")
+                self.reflection_agent = self.agent_registry.get('reflection_agent_local')
+                if self.reflection_agent is not None:
+                    print("  ✅ ReflectionAgent ready (no LLM)")
+                else:
+                    print("  ⚠️ ReflectionAgent init failed")
         else:
             print("  ⏭️ ReflectionAgent disabled")
         
@@ -750,6 +760,7 @@ class MultiAgentTradingBot:
         from src.agents.agent_config import AgentConfig
 
         self.agent_config = AgentConfig.from_dict({'agents': agents})
+        self.agent_registry.config = self.agent_config
         normalized_agents = self.agent_config.get_enabled_agents()
         self._last_agent_config = dict(normalized_agents)
         global_state.agent_config = normalized_agents
@@ -757,9 +768,11 @@ class MultiAgentTradingBot:
         # Optional Agent: RegimeDetector
         if self.agent_config.regime_detector_agent:
             if self.regime_detector is None:
-                from src.agents.regime_detector_agent import RegimeDetector
-                self.regime_detector = RegimeDetector()
-                log.info("✅ RegimeDetectorAgent enabled (runtime)")
+                self.regime_detector = self.agent_registry.get('regime_detector_agent')
+                if self.regime_detector is not None:
+                    log.info("✅ RegimeDetectorAgent enabled (runtime)")
+                else:
+                    log.warning("⚠️ RegimeDetectorAgent enable failed (runtime)")
         else:
             self.regime_detector = None
 
@@ -776,15 +789,19 @@ class MultiAgentTradingBot:
         # Optional Agent: ReflectionAgent
         if self.agent_config.reflection_agent_llm or self.agent_config.reflection_agent_local:
             if self.agent_config.reflection_agent_llm:
-                from src.agents.reflection_agent import ReflectionAgentLLM
                 if not isinstance(self.reflection_agent, ReflectionAgentLLM):
-                    self.reflection_agent = ReflectionAgentLLM()
-                    log.info("✅ ReflectionAgentLLM enabled (runtime)")
+                    self.reflection_agent = self.agent_registry.get('reflection_agent_llm')
+                    if self.reflection_agent is not None:
+                        log.info("✅ ReflectionAgentLLM enabled (runtime)")
+                    else:
+                        log.warning("⚠️ ReflectionAgentLLM enable failed (runtime)")
             else:
-                from src.agents.reflection_agent import ReflectionAgent
                 if not isinstance(self.reflection_agent, ReflectionAgent):
-                    self.reflection_agent = ReflectionAgent()
-                    log.info("✅ ReflectionAgent (no LLM) enabled (runtime)")
+                    self.reflection_agent = self.agent_registry.get('reflection_agent_local')
+                    if self.reflection_agent is not None:
+                        log.info("✅ ReflectionAgent (no LLM) enabled (runtime)")
+                    else:
+                        log.warning("⚠️ ReflectionAgent enable failed (runtime)")
         else:
             self.reflection_agent = None
 
@@ -958,6 +975,1013 @@ class MultiAgentTradingBot:
             'confidence': confidence,
             'window_minutes': window_minutes
         }
+
+    def _get_agent_timeout(self, key: str, default_seconds: float) -> float:
+        """
+        Resolve per-agent timeout in seconds from config.
+        Uses AgentConfig runtime policy and falls back to legacy config path.
+        """
+        cfg = getattr(self, 'agent_config', None)
+        if cfg is not None and hasattr(cfg, 'get_timeout'):
+            return cfg.get_timeout(key, default_seconds)
+        raw = self.config.get(f'agents.timeouts.{key}', default_seconds)
+        try:
+            val = float(raw)
+            return val if val > 0 else float(default_seconds)
+        except (TypeError, ValueError):
+            return float(default_seconds)
+
+    def _emit_runtime_event(
+        self,
+        *,
+        run_id: str,
+        stream: str,
+        agent: str,
+        phase: str,
+        symbol: Optional[str] = None,
+        cycle_id: Optional[str] = None,
+        data: Optional[Dict[str, Any]] = None
+    ) -> None:
+        emit_runtime_event(
+            shared_state=global_state,
+            run_id=run_id,
+            stream=stream,
+            agent=agent,
+            phase=phase,
+            symbol=symbol or self.current_symbol,
+            cycle_id=cycle_id,
+            data=data or {}
+        )
+
+    async def _run_task_with_timeout(
+        self,
+        *,
+        run_id: str,
+        cycle_id: str,
+        agent_name: str,
+        timeout_seconds: float,
+        task_factory,
+        fallback=None,
+        log_errors: bool = True
+    ):
+        """
+        Execute one async task with timeout and standardized runtime events.
+        """
+        self._emit_runtime_event(
+            run_id=run_id,
+            stream="lifecycle",
+            agent=agent_name,
+            phase="start",
+            cycle_id=cycle_id,
+            data={"timeout_seconds": timeout_seconds}
+        )
+        started = time.time()
+        try:
+            result = await asyncio.wait_for(task_factory(), timeout=timeout_seconds)
+            duration_ms = int((time.time() - started) * 1000)
+            self._emit_runtime_event(
+                run_id=run_id,
+                stream="lifecycle",
+                agent=agent_name,
+                phase="end",
+                cycle_id=cycle_id,
+                data={"status": "ok", "duration_ms": duration_ms}
+            )
+            return result
+        except asyncio.TimeoutError:
+            duration_ms = int((time.time() - started) * 1000)
+            msg = f"⏱️ {agent_name} timeout after {timeout_seconds:.1f}s, degraded fallback used"
+            if log_errors:
+                log.warning(msg)
+            global_state.add_agent_message(agent_name, msg, level="warning")
+            self._emit_runtime_event(
+                run_id=run_id,
+                stream="error",
+                agent=agent_name,
+                phase="timeout",
+                cycle_id=cycle_id,
+                data={"status": "timeout", "duration_ms": duration_ms, "timeout_seconds": timeout_seconds}
+            )
+            return fallback
+        except Exception as e:
+            duration_ms = int((time.time() - started) * 1000)
+            if log_errors:
+                log.error(f"❌ {agent_name} failed: {e}")
+            self._emit_runtime_event(
+                run_id=run_id,
+                stream="error",
+                agent=agent_name,
+                phase="error",
+                cycle_id=cycle_id,
+                data={"status": "error", "duration_ms": duration_ms, "error": str(e)}
+            )
+            return fallback
+
+    async def _run_parallel_analysis(
+        self,
+        *,
+        run_id: str,
+        cycle_id: str,
+        snapshot_id: str,
+        market_snapshot,
+        processed_dfs: Dict[str, "pd.DataFrame"]
+    ) -> Tuple[Dict, Any, Any, Optional[str]]:
+        """
+        Run quant/predict/reflection in parallel with timeouts and safe fallbacks.
+        """
+        async def quant_task():
+            res = await self.quant_analyst.analyze_all_timeframes(market_snapshot)
+            trend_score = res.get('trend', {}).get('total_trend_score', 0)
+            osc_score = res.get('oscillator', {}).get('total_osc_score', 0)
+            sent_score = res.get('sentiment', {}).get('total_sentiment_score', 0)
+            quant_msg = f"Analysis Complete. Trend={trend_score:+.0f} | Osc={osc_score:+.0f} | Sent={sent_score:+.0f}"
+            global_state.add_agent_message("quant_analyst", quant_msg, level="success")
+            return res
+
+        async def predict_task():
+            if self.agent_config.predict_agent and self.current_symbol in self.predict_agents:
+                df_15m_features = self.feature_engineer.build_features(processed_dfs['15m'])
+                latest_features = {}
+                if not df_15m_features.empty:
+                    latest = df_15m_features.iloc[-1].to_dict()
+                    latest_features = {
+                        k: v for k, v in latest.items()
+                        if isinstance(v, (int, float)) and not isinstance(v, bool)
+                    }
+
+                res = await self.predict_agents[self.current_symbol].predict(latest_features)
+                global_state.prophet_probability = res.probability_up
+                p_up_pct = res.probability_up * 100
+                direction = "↗UP" if res.probability_up > 0.55 else ("↘DN" if res.probability_up < 0.45 else "➖NEU")
+                predict_msg = f"Probability Up: {p_up_pct:.1f}% {direction} (Conf: {res.confidence*100:.0f}%)"
+                global_state.add_agent_message("predict_agent", predict_msg, level="info")
+                self.saver.save_prediction(asdict(res), self.current_symbol, snapshot_id, cycle_id=cycle_id)
+                return res
+            return None
+
+        async def reflection_task():
+            total_trades = len(global_state.trade_history)
+            if self.reflection_agent and self.reflection_agent.should_reflect(total_trades):
+                global_state.add_agent_message("reflection_agent", "🔍 Reflecting on recent trade performance...", level="info")
+                trades_to_analyze = global_state.trade_history[-10:]
+                res = await self.reflection_agent.generate_reflection(trades_to_analyze)
+                if res:
+                    reflection_text = res.to_prompt_text()
+                    global_state.last_reflection = res.raw_response
+                    global_state.last_reflection_text = reflection_text
+                    global_state.reflection_count = self.reflection_agent.reflection_count
+                    global_state.add_agent_message(
+                        "reflection_agent",
+                        f"Reflected on {len(trades_to_analyze)} trades. Insight: {res.insight}",
+                        level="info"
+                    )
+                return res
+            return None
+
+        quant_timeout = self._get_agent_timeout('quant_analyst', 25.0)
+        predict_timeout = self._get_agent_timeout('predict_agent', 30.0)
+        reflection_timeout = self._get_agent_timeout('reflection_agent', 45.0)
+
+        analysis_results = await asyncio.gather(
+            self._run_task_with_timeout(
+                run_id=run_id,
+                cycle_id=cycle_id,
+                agent_name="quant_analyst",
+                timeout_seconds=quant_timeout,
+                task_factory=quant_task,
+                fallback={}
+            ),
+            self._run_task_with_timeout(
+                run_id=run_id,
+                cycle_id=cycle_id,
+                agent_name="predict_agent",
+                timeout_seconds=predict_timeout,
+                task_factory=predict_task,
+                fallback=None
+            ),
+            self._run_task_with_timeout(
+                run_id=run_id,
+                cycle_id=cycle_id,
+                agent_name="reflection_agent",
+                timeout_seconds=reflection_timeout,
+                task_factory=reflection_task,
+                fallback=None
+            )
+        )
+
+        quant_analysis = analysis_results[0] if isinstance(analysis_results[0], dict) else {}
+        predict_result = analysis_results[1]
+        reflection_result = analysis_results[2]
+        reflection_text = reflection_result.to_prompt_text() if reflection_result else global_state.last_reflection_text
+        return quant_analysis, predict_result, reflection_result, reflection_text
+
+    async def _run_semantic_analysis(
+        self,
+        *,
+        run_id: str,
+        cycle_id: str,
+        current_price: float,
+        trend_1h: str,
+        four_layer_result: Dict[str, Any],
+        processed_dfs: Dict[str, "pd.DataFrame"]
+    ) -> Dict[str, Any]:
+        """
+        Run optional trend/setup/trigger semantic agents and summarize their outputs.
+        """
+        use_trend_llm = self.agent_config.trend_agent_llm
+        use_trend_local = self.agent_config.trend_agent_local
+        use_setup_llm = self.agent_config.setup_agent_llm
+        use_setup_local = self.agent_config.setup_agent_local
+        use_trigger_llm = self.agent_config.trigger_agent_llm
+        use_trigger_local = self.agent_config.trigger_agent_local
+        use_trend = use_trend_llm or use_trend_local
+        use_setup = use_setup_llm or use_setup_local
+        use_trigger = use_trigger_llm or use_trigger_local
+
+        if use_trend and use_trend_llm and use_trend_local:
+            log.info("⚠️ Both TrendAgentLLM and TrendAgent enabled; using LLM version only")
+        if use_setup and use_setup_llm and use_setup_local:
+            log.info("⚠️ Both SetupAgentLLM and SetupAgent enabled; using LLM version only")
+        if use_trigger and use_trigger_llm and use_trigger_local:
+            log.info("⚠️ Both TriggerAgentLLM and TriggerAgent enabled; using LLM version only")
+
+        if not (use_trend or use_setup or use_trigger):
+            global_state.semantic_analyses = {}
+            return {}
+
+        if not (hasattr(self, '_headless_mode') and self._headless_mode):
+            print("[Step 2.5/5] 🤖 Multi-Agent Semantic Analysis...")
+
+        self._emit_runtime_event(
+            run_id=run_id,
+            stream="lifecycle",
+            agent="semantic_agents",
+            phase="start",
+            cycle_id=cycle_id
+        )
+
+        try:
+            trend_data = {
+                'symbol': self.current_symbol,
+                'close_1h': four_layer_result.get('close_1h', current_price),
+                'ema20_1h': four_layer_result.get('ema20_1h', current_price),
+                'ema60_1h': four_layer_result.get('ema60_1h', current_price),
+                'oi_change': four_layer_result.get('oi_change', 0),
+                'adx': four_layer_result.get('adx', 20),
+                'regime': four_layer_result.get('regime', 'unknown')
+            }
+
+            setup_data = {
+                'symbol': self.current_symbol,
+                'close_15m': processed_dfs['15m']['close'].iloc[-1] if len(processed_dfs['15m']) > 0 else current_price,
+                'kdj_j': four_layer_result.get('kdj_j', 50),
+                'kdj_k': processed_dfs['15m']['kdj_k'].iloc[-1] if 'kdj_k' in processed_dfs['15m'].columns else 50,
+                'bb_upper': processed_dfs['15m']['bb_upper'].iloc[-1] if 'bb_upper' in processed_dfs['15m'].columns else current_price * 1.02,
+                'bb_middle': processed_dfs['15m']['bb_middle'].iloc[-1] if 'bb_middle' in processed_dfs['15m'].columns else current_price,
+                'bb_lower': processed_dfs['15m']['bb_lower'].iloc[-1] if 'bb_lower' in processed_dfs['15m'].columns else current_price * 0.98,
+                'trend_direction': trend_1h,
+                'macd_diff': processed_dfs['15m']['macd_diff'].iloc[-1] if 'macd_diff' in processed_dfs['15m'].columns else 0
+            }
+
+            trigger_data = {
+                'symbol': self.current_symbol,
+                'pattern': four_layer_result.get('trigger_pattern'),
+                'rvol': four_layer_result.get('trigger_rvol', 1.0),
+                'trend_direction': four_layer_result.get('final_action', 'neutral')
+            }
+
+            tasks = {}
+            loop = asyncio.get_running_loop()
+            if use_trend:
+                if use_trend_llm:
+                    from src.agents.trend_agent import TrendAgentLLM
+                    if not hasattr(self, '_trend_agent_llm'):
+                        self._trend_agent_llm = TrendAgentLLM()
+                    trend_agent = self._trend_agent_llm
+                else:
+                    from src.agents.trend_agent import TrendAgent
+                    if not hasattr(self, '_trend_agent_local'):
+                        self._trend_agent_local = TrendAgent()
+                    trend_agent = self._trend_agent_local
+                tasks['trend'] = loop.run_in_executor(None, trend_agent.analyze, trend_data)
+
+            if use_setup:
+                if use_setup_llm:
+                    from src.agents.setup_agent import SetupAgentLLM
+                    if not hasattr(self, '_setup_agent_llm'):
+                        self._setup_agent_llm = SetupAgentLLM()
+                    setup_agent = self._setup_agent_llm
+                else:
+                    from src.agents.setup_agent import SetupAgent
+                    if not hasattr(self, '_setup_agent_local'):
+                        self._setup_agent_local = SetupAgent()
+                    setup_agent = self._setup_agent_local
+                tasks['setup'] = loop.run_in_executor(None, setup_agent.analyze, setup_data)
+
+            if use_trigger:
+                if use_trigger_llm:
+                    from src.agents.trigger_agent import TriggerAgentLLM
+                    if not hasattr(self, '_trigger_agent_llm'):
+                        self._trigger_agent_llm = TriggerAgentLLM()
+                    trigger_agent = self._trigger_agent_llm
+                else:
+                    from src.agents.trigger_agent import TriggerAgent
+                    if not hasattr(self, '_trigger_agent_local'):
+                        self._trigger_agent_local = TriggerAgent()
+                    trigger_agent = self._trigger_agent_local
+                tasks['trigger'] = loop.run_in_executor(None, trigger_agent.analyze, trigger_data)
+
+            analyses: Dict[str, Any] = {}
+            if tasks:
+                semantic_timeout = self._get_agent_timeout('semantic_agent', 35.0)
+                wrapped_tasks = {
+                    key: self._run_task_with_timeout(
+                        run_id=run_id,
+                        cycle_id=cycle_id,
+                        agent_name=f"{key}_agent",
+                        timeout_seconds=semantic_timeout,
+                        task_factory=(lambda fut=fut: fut),
+                        fallback=None
+                    )
+                    for key, fut in tasks.items()
+                }
+                results = await asyncio.gather(*wrapped_tasks.values())
+                analyses = {
+                    key: val
+                    for key, val in zip(wrapped_tasks.keys(), results)
+                    if val is not None
+                }
+
+            global_state.semantic_analyses = analyses
+            if analyses:
+                trend_mark = '✓' if analyses.get('trend') else '○'
+                setup_mark = '✓' if analyses.get('setup') else '○'
+                trigger_mark = '✓' if analyses.get('trigger') else '○'
+                global_state.add_log(f"[⚖️ CRITIC] 4-Layer Analysis: Trend={trend_mark} | Setup={setup_mark} | Trigger={trigger_mark}")
+
+                trend_result = analyses.get('trend')
+                if isinstance(trend_result, dict):
+                    meta = trend_result.get('metadata', {}) or {}
+                    summary = (
+                        f"Stance: {trend_result.get('stance', 'UNKNOWN')} | "
+                        f"Strength: {meta.get('strength', 'N/A')} | "
+                        f"ADX: {meta.get('adx', 'N/A')} | "
+                        f"OI Fuel: {meta.get('oi_fuel', 'N/A')}"
+                    )
+                    global_state.add_agent_message("trend_agent", summary, level="info")
+
+                setup_result = analyses.get('setup')
+                if isinstance(setup_result, dict):
+                    meta = setup_result.get('metadata', {}) or {}
+                    summary = (
+                        f"Stance: {setup_result.get('stance', 'UNKNOWN')} | "
+                        f"Zone: {meta.get('zone', 'N/A')} | "
+                        f"KDJ: {meta.get('kdj_j', 'N/A')} | "
+                        f"MACD: {meta.get('macd_signal', 'N/A')}"
+                    )
+                    global_state.add_agent_message("setup_agent", summary, level="info")
+
+                trigger_result = analyses.get('trigger')
+                if isinstance(trigger_result, dict):
+                    meta = trigger_result.get('metadata', {}) or {}
+                    summary = (
+                        f"Stance: {trigger_result.get('stance', 'UNKNOWN')} | "
+                        f"Pattern: {meta.get('pattern', 'NONE')} | "
+                        f"RVOL: {meta.get('rvol', 'N/A')}x"
+                    )
+                    global_state.add_agent_message("trigger_agent", summary, level="info")
+
+            self._emit_runtime_event(
+                run_id=run_id,
+                stream="lifecycle",
+                agent="semantic_agents",
+                phase="end",
+                cycle_id=cycle_id,
+                data={"count": len(analyses)}
+            )
+            return analyses
+
+        except Exception as e:
+            log.error(f"❌ Multi-Agent analysis failed: {e}")
+            fallback = {
+                'trend': f"Trend analysis unavailable: {e}",
+                'setup': f"Setup analysis unavailable: {e}",
+                'trigger': f"Trigger analysis unavailable: {e}"
+            }
+            global_state.semantic_analyses = fallback
+            self._emit_runtime_event(
+                run_id=run_id,
+                stream="error",
+                agent="semantic_agents",
+                phase="error",
+                cycle_id=cycle_id,
+                data={"error": str(e)}
+            )
+            return fallback
+
+    async def _run_decision_stage(
+        self,
+        *,
+        run_id: str,
+        cycle_id: str,
+        processed_dfs: Dict[str, "pd.DataFrame"],
+        quant_analysis: Dict[str, Any],
+        predict_result: Any,
+        reflection_text: Optional[str],
+        current_price: float,
+        current_position_info: Optional[Dict[str, Any]],
+        regime_result: Optional[Dict[str, Any]]
+    ) -> Tuple[Dict[str, Any], str, Optional[Dict[str, Any]], Any, Dict[str, Any]]:
+        """
+        Build final decision payload (forced-exit/fast/LLM/rule) and convert to VoteResult.
+        """
+        self._emit_runtime_event(
+            run_id=run_id,
+            stream="lifecycle",
+            agent="decision_router",
+            phase="start",
+            cycle_id=cycle_id
+        )
+
+        selected_agent_outputs = self._collect_selected_agent_outputs(
+            predict_result=predict_result,
+            reflection_text=reflection_text
+        )
+        if isinstance(quant_analysis, dict):
+            quant_analysis['agent_outputs'] = selected_agent_outputs
+
+        market_data = {
+            'df_5m': processed_dfs['5m'],
+            'df_15m': processed_dfs['15m'],
+            'df_1h': processed_dfs['1h'],
+            'current_price': current_price
+        }
+        regime_info = quant_analysis.get('regime', {})
+
+        fast_signal = None
+        decision_source = 'llm'
+        forced_exit = self._check_forced_exit(current_position_info)
+        llm_enabled = self._is_llm_enabled()
+        if llm_enabled and getattr(self.strategy_engine, 'disable_llm', False):
+            llm_enabled = bool(self.strategy_engine.reload_config())
+
+        if forced_exit:
+            decision_source = 'forced_exit'
+            decision_payload = forced_exit
+            global_state.add_log(f"[🧯 FORCED EXIT] {forced_exit.get('reasoning', 'Forced close')}")
+            try:
+                conf_val = float(decision_payload.get('confidence', 0) or 0)
+            except (TypeError, ValueError):
+                conf_val = 0.0
+            global_state.add_agent_message(
+                "decision_core",
+                f"Action: {decision_payload.get('action', '').upper()} | Conf: {conf_val:.1f}% | Reason: {decision_payload.get('reasoning', '')} | Source: FORCED",
+                level="warning"
+            )
+        else:
+            fast_signal = self._detect_fast_trend_signal(processed_dfs.get('5m'))
+
+        if fast_signal:
+            decision_source = 'fast_trend'
+            change_pct = fast_signal['change_pct']
+            volume_ratio = fast_signal['volume_ratio']
+            fast_action = fast_signal['action']
+            fast_confidence = fast_signal['confidence']
+            fast_reason = f"30m trend {change_pct:+.2f}% | RVOL {volume_ratio:.2f}x"
+
+            if not (hasattr(self, '_headless_mode') and self._headless_mode):
+                print("[Step 3/5] ⚡ Fast Trend Trigger - Immediate entry signal")
+
+            global_state.add_log(f"[⚡ FAST] {fast_action.upper()} | {fast_reason}")
+
+            if fast_action == 'open_long':
+                bull_conf = fast_confidence
+                bear_conf = max(0.0, 100.0 - fast_confidence)
+                bull_stance = 'FAST_UP'
+                bear_stance = 'HEDGE'
+                bull_reason = fast_reason
+                bear_reason = 'Short bias weak vs momentum'
+            else:
+                bull_conf = max(0.0, 100.0 - fast_confidence)
+                bear_conf = fast_confidence
+                bull_stance = 'HEDGE'
+                bear_stance = 'FAST_DN'
+                bull_reason = 'Long bias weak vs momentum'
+                bear_reason = fast_reason
+
+            decision_payload = {
+                'action': fast_action,
+                'confidence': fast_confidence,
+                'position_size_pct': min(100.0, max(10.0, fast_confidence)),
+                'reasoning': fast_reason,
+                'bull_perspective': {
+                    'bull_confidence': bull_conf,
+                    'stance': bull_stance,
+                    'bullish_reasons': bull_reason
+                },
+                'bear_perspective': {
+                    'bear_confidence': bear_conf,
+                    'stance': bear_stance,
+                    'bearish_reasons': bear_reason
+                }
+            }
+            try:
+                conf_val = float(decision_payload.get('confidence', 0) or 0)
+            except (TypeError, ValueError):
+                conf_val = 0.0
+            global_state.add_agent_message(
+                "decision_core",
+                f"Action: {decision_payload.get('action').upper()} | Conf: {conf_val:.1f}% | Reason: {decision_payload.get('reasoning')[:100]}... | Source: FAST",
+                level="info"
+            )
+        elif not forced_exit:
+            if llm_enabled:
+                if not (hasattr(self, '_headless_mode') and self._headless_mode):
+                    print("[Step 3/5] 🧠 DeepSeek LLM - Making decision...")
+
+                global_state.add_agent_message("decision_core", "🧠 DeepSeek LLM is weighing options...", level="info")
+
+                market_context_text = self._build_market_context(
+                    quant_analysis=quant_analysis,
+                    predict_result=predict_result,
+                    market_data=market_data,
+                    regime_info=regime_info,
+                    position_info=current_position_info,
+                    selected_agent_outputs=selected_agent_outputs
+                )
+
+                market_context_data = {
+                    'symbol': self.current_symbol,
+                    'timestamp': datetime.now().isoformat(),
+                    'current_price': current_price,
+                    'position_side': (current_position_info or {}).get('side')
+                }
+
+                log.info("🐂🐻 Gathering Bull/Bear perspectives in PARALLEL...")
+                llm_perspective_timeout = self._get_agent_timeout('llm_perspective', 45.0)
+                loop = asyncio.get_running_loop()
+                bull_p, bear_p = await asyncio.gather(
+                    self._run_task_with_timeout(
+                        run_id=run_id,
+                        cycle_id=cycle_id,
+                        agent_name="bull_agent",
+                        timeout_seconds=llm_perspective_timeout,
+                        task_factory=lambda: loop.run_in_executor(
+                            None, self.strategy_engine.get_bull_perspective, market_context_text
+                        ),
+                        fallback={
+                            "stance": "NEUTRAL",
+                            "bullish_reasons": "Perspective timeout",
+                            "bull_confidence": 50
+                        }
+                    ),
+                    self._run_task_with_timeout(
+                        run_id=run_id,
+                        cycle_id=cycle_id,
+                        agent_name="bear_agent",
+                        timeout_seconds=llm_perspective_timeout,
+                        task_factory=lambda: loop.run_in_executor(
+                            None, self.strategy_engine.get_bear_perspective, market_context_text
+                        ),
+                        fallback={
+                            "stance": "NEUTRAL",
+                            "bearish_reasons": "Perspective timeout",
+                            "bear_confidence": 50
+                        }
+                    )
+                )
+
+                bull_summary = bull_p.get('bullish_reasons', 'No reasons provided')
+                bear_summary = bear_p.get('bearish_reasons', 'No reasons provided')
+                global_state.add_agent_message("bull_agent", f"Stance: {bull_p.get('stance')} | Reason: {bull_summary}", level="success")
+                global_state.add_agent_message("bear_agent", f"Stance: {bear_p.get('stance')} | Reason: {bear_summary}", level="warning")
+
+                decision_payload = self.strategy_engine.make_decision(
+                    market_context_text=market_context_text,
+                    market_context_data=market_context_data,
+                    reflection=reflection_text,
+                    bull_perspective=bull_p,
+                    bear_perspective=bear_p
+                )
+
+                try:
+                    conf_val = float(decision_payload.get('confidence', 0) or 0)
+                except (TypeError, ValueError):
+                    conf_val = 0.0
+                global_state.add_agent_message(
+                    "decision_core",
+                    f"Action: {decision_payload.get('action').upper()} | Conf: {conf_val:.1f}% | Reason: {decision_payload.get('reasoning')}",
+                    level="info"
+                )
+            else:
+                if not (hasattr(self, '_headless_mode') and self._headless_mode):
+                    print("[Step 3/5] ⚖️ DecisionCore - Rule-based decision...")
+
+                global_state.add_agent_message("decision_core", "⚖️ Running rule-based decision logic...", level="info")
+                decision_source = 'decision_core'
+                vote_core = await self.decision_core.make_decision(
+                    quant_analysis=quant_analysis,
+                    predict_result=predict_result,
+                    market_data=market_data
+                )
+                size_pct = 0.0
+                if vote_core.trade_params and self.max_position_size:
+                    size_pct = min(
+                        100.0,
+                        max(5.0, (vote_core.trade_params.get('position_size', 0) / self.max_position_size) * 100)
+                    )
+                decision_payload = {
+                    'action': vote_core.action,
+                    'confidence': vote_core.confidence,
+                    'position_size_pct': size_pct,
+                    'reasoning': vote_core.reason,
+                    'bull_perspective': {
+                        'bull_confidence': 50,
+                        'stance': 'NEUTRAL',
+                        'bullish_reasons': 'LLM disabled'
+                    },
+                    'bear_perspective': {
+                        'bear_confidence': 50,
+                        'stance': 'NEUTRAL',
+                        'bearish_reasons': 'LLM disabled'
+                    }
+                }
+                try:
+                    conf_val = float(decision_payload.get('confidence', 0) or 0)
+                except (TypeError, ValueError):
+                    conf_val = 0.0
+                global_state.add_agent_message(
+                    "decision_core",
+                    f"Action: {decision_payload.get('action').upper()} | Conf: {conf_val:.1f}% | Reason: {decision_payload.get('reasoning')} | Source: RULE",
+                    level="info"
+                )
+
+        if 'bull_perspective' not in decision_payload:
+            decision_payload['bull_perspective'] = {
+                'bull_confidence': 50,
+                'stance': 'NEUTRAL',
+                'bullish_reasons': 'N/A'
+            }
+        if 'bear_perspective' not in decision_payload:
+            decision_payload['bear_perspective'] = {
+                'bear_confidence': 50,
+                'stance': 'NEUTRAL',
+                'bearish_reasons': 'N/A'
+            }
+        decision_payload['action'] = normalize_action(
+            decision_payload.get('action'),
+            position_side=(current_position_info or {}).get('side')
+        )
+
+        from src.agents.decision_core_agent import VoteResult
+
+        q_trend = quant_analysis.get('trend', {})
+        q_osc = quant_analysis.get('oscillator', {})
+        q_sent = quant_analysis.get('sentiment', {})
+        q_comp = quant_analysis.get('comprehensive', {})
+
+        vote_details = {
+            'deepseek': decision_payload.get('confidence', 0),
+            'strategist_total': q_comp.get('score', 0),
+            'trend_1h': q_trend.get('trend_1h_score', 0),
+            'trend_15m': q_trend.get('trend_15m_score', 0),
+            'trend_5m': q_trend.get('trend_5m_score', 0),
+            'oscillator_1h': q_osc.get('osc_1h_score', 0),
+            'oscillator_15m': q_osc.get('osc_15m_score', 0),
+            'oscillator_5m': q_osc.get('osc_5m_score', 0),
+            'sentiment': q_sent.get('total_sentiment_score', 0),
+            'prophet': predict_result.probability_up if predict_result else 0.5,
+            'bull_confidence': decision_payload.get('bull_perspective', {}).get('bull_confidence', 50),
+            'bear_confidence': decision_payload.get('bear_perspective', {}).get('bear_confidence', 50),
+            'bull_stance': decision_payload.get('bull_perspective', {}).get('stance', 'UNKNOWN'),
+            'bear_stance': decision_payload.get('bear_perspective', {}).get('stance', 'UNKNOWN'),
+            'bull_reasons': decision_payload.get('bull_perspective', {}).get('bullish_reasons', ''),
+            'bear_reasons': decision_payload.get('bear_perspective', {}).get('bearish_reasons', '')
+        }
+
+        if fast_signal:
+            vote_details['fast_trend_change_pct'] = fast_signal.get('change_pct')
+            vote_details['fast_trend_volume_ratio'] = fast_signal.get('volume_ratio')
+            vote_details['fast_trend_window'] = fast_signal.get('window_minutes')
+
+        trend_score_total = quant_analysis.get('trend', {}).get('total_trend_score', 0)
+        regime_desc = SemanticConverter.get_trend_semantic(trend_score_total)
+
+        pos_pct = decision_payload.get('position_size_pct', 0)
+        if not pos_pct and decision_payload.get('position_size_usd') and self.max_position_size:
+            pos_pct = (decision_payload.get('position_size_usd') / self.max_position_size) * 100
+            pos_pct = min(pos_pct, 100)
+
+        price_position_info = regime_result.get('position', {}) if regime_result else {}
+
+        vote_result = VoteResult(
+            action=decision_payload.get('action', 'wait'),
+            confidence=decision_payload.get('confidence', 0),
+            weighted_score=decision_payload.get('confidence', 0) - 50,
+            vote_details=vote_details,
+            multi_period_aligned=True,
+            reason=decision_payload.get('reasoning', 'DeepSeek LLM decision'),
+            regime={
+                'regime': regime_desc,
+                'confidence': decision_payload.get('confidence', 0)
+            },
+            position=price_position_info
+        )
+
+        self._emit_runtime_event(
+            run_id=run_id,
+            stream="lifecycle",
+            agent="decision_router",
+            phase="end",
+            cycle_id=cycle_id,
+            data={
+                "action": vote_result.action,
+                "confidence": vote_result.confidence,
+                "source": decision_source
+            }
+        )
+
+        return decision_payload, decision_source, fast_signal, vote_result, selected_agent_outputs
+
+    def _build_risk_order_params(
+        self,
+        *,
+        vote_result: Any,
+        quant_analysis: Dict[str, Any],
+        processed_dfs: Dict[str, "pd.DataFrame"],
+        current_price: float,
+        current_position_info: Optional[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """Build risk-audit input payload from decision + market context."""
+        order_params = self._build_order_params(
+            action=vote_result.action,
+            current_price=current_price,
+            confidence=vote_result.confidence,
+            position_info=current_position_info
+        )
+        order_params['symbol'] = self.current_symbol
+        order_params['regime'] = vote_result.regime
+        order_params['position'] = vote_result.position
+        order_params['confidence'] = vote_result.confidence
+
+        osc_data = quant_analysis.get('oscillator', {}) if isinstance(quant_analysis, dict) else {}
+        order_params['oscillator_scores'] = {
+            'osc_1h_score': osc_data.get('osc_1h_score', 0),
+            'osc_15m_score': osc_data.get('osc_15m_score', 0),
+            'osc_5m_score': osc_data.get('osc_5m_score', 0)
+        }
+        sentiment_data = quant_analysis.get('sentiment', {}) if isinstance(quant_analysis, dict) else {}
+        order_params['sentiment_score'] = sentiment_data.get('total_sentiment_score', 0)
+        order_params.update(self._get_symbol_trade_stats(self.current_symbol))
+        trend_data = quant_analysis.get('trend', {}) if isinstance(quant_analysis, dict) else {}
+        order_params['trend_scores'] = {
+            'trend_1h_score': trend_data.get('trend_1h_score', 0),
+            'trend_15m_score': trend_data.get('trend_15m_score', 0),
+            'trend_5m_score': trend_data.get('trend_5m_score', 0)
+        }
+
+        try:
+            if self.agent_config.position_analyzer_agent:
+                from src.agents.position_analyzer_agent import PositionAnalyzer
+                df_1h = processed_dfs.get('1h')
+                if df_1h is not None and len(df_1h) > 5:
+                    analyzer = PositionAnalyzer()
+                    order_params['position_1h'] = analyzer.analyze_position(
+                        df_1h,
+                        current_price,
+                        timeframe='1h'
+                    )
+        except Exception:
+            pass
+
+        return order_params
+
+    def _refresh_account_state_for_audit(self) -> float:
+        """Fetch account state and sync dashboard fields before risk audit."""
+        try:
+            if self.test_mode:
+                wallet_bal = global_state.virtual_balance
+                avail_bal = global_state.virtual_balance
+                unrealized_pnl = sum(
+                    pos.get('unrealized_pnl', 0)
+                    for pos in global_state.virtual_positions.values()
+                )
+                total_equity = wallet_bal + unrealized_pnl
+                initial_balance = global_state.virtual_initial_balance
+                total_pnl = total_equity - initial_balance
+
+                global_state.update_account(
+                    equity=total_equity,
+                    available=avail_bal,
+                    wallet=wallet_bal,
+                    pnl=total_pnl
+                )
+                global_state.record_account_success()
+                return float(avail_bal)
+
+            acc_info = self.client.get_futures_account()
+            wallet_bal = float(acc_info.get('total_wallet_balance', 0))
+            unrealized_pnl = float(acc_info.get('total_unrealized_profit', 0))
+            avail_bal = float(acc_info.get('available_balance', 0))
+            total_equity = wallet_bal + unrealized_pnl
+
+            global_state.update_account(
+                equity=total_equity,
+                available=avail_bal,
+                wallet=wallet_bal,
+                pnl=unrealized_pnl
+            )
+            global_state.record_account_success()
+            return avail_bal
+        except Exception as e:
+            log.error(f"Failed to fetch account info: {e}")
+            global_state.record_account_failure()
+            global_state.add_log(f"❌ Account info fetch failed: {str(e)}")
+            return 0.0
+
+    async def _run_risk_audit_stage(
+        self,
+        *,
+        run_id: str,
+        cycle_id: str,
+        vote_result: Any,
+        quant_analysis: Dict[str, Any],
+        processed_dfs: Dict[str, "pd.DataFrame"],
+        current_price: float,
+        current_position_info: Optional[Dict[str, Any]],
+        regime_result: Optional[Dict[str, Any]]
+    ) -> Tuple[Dict[str, Any], Any, float, Optional[PositionInfo]]:
+        """Run guardian audit stage and return order params + audit result."""
+        self._emit_runtime_event(
+            run_id=run_id,
+            stream="lifecycle",
+            agent="risk_audit",
+            phase="start",
+            cycle_id=cycle_id
+        )
+
+        regime_txt = vote_result.regime.get('regime', 'Unknown') if vote_result.regime else 'Unknown'
+        global_state.add_log(
+            f"⚖️ DecisionCoreAgent (The Critic): Context(Regime={regime_txt}) => "
+            f"Vote: {vote_result.action.upper()} (Conf: {vote_result.confidence:.0f}%)"
+        )
+        global_state.guardian_status = "Auditing..."
+
+        order_params = self._build_risk_order_params(
+            vote_result=vote_result,
+            quant_analysis=quant_analysis,
+            processed_dfs=processed_dfs,
+            current_price=current_price,
+            current_position_info=current_position_info
+        )
+
+        print(f"  ✅ 信号方向: {vote_result.action}")
+        print(f"  ✅ 综合信心: {vote_result.confidence:.1f}%")
+        if vote_result.regime:
+            print(f"  📊 市场状态: {vote_result.regime['regime']}")
+        if vote_result.position:
+            print(
+                f"  📍 价格位置: {min(max(vote_result.position['position_pct'], 0), 100):.1f}% "
+                f"({vote_result.position['location']})"
+            )
+
+        account_balance = self._refresh_account_state_for_audit()
+        current_position = self._get_current_position()
+        atr_pct = regime_result.get('atr_pct', None) if regime_result else None
+
+        global_state.add_agent_message("risk_audit", "🛡️ Guardian is auditing risk and positions...", level="info")
+        from src.agents.risk_audit_agent import RiskCheckResult, RiskLevel
+        fallback_audit = RiskCheckResult(
+            passed=False,
+            risk_level=RiskLevel.FATAL,
+            blocked_reason="risk_audit_unavailable",
+            corrections=None,
+            warnings=["Risk audit degraded, decision blocked by safety fallback"]
+        )
+        risk_timeout = self._get_agent_timeout('risk_audit', 20.0)
+        try:
+            audit_result = await asyncio.wait_for(
+                self.risk_audit.audit_decision(
+                    decision=order_params,
+                    current_position=current_position,
+                    account_balance=account_balance,
+                    current_price=current_price,
+                    atr_pct=atr_pct
+                ),
+                timeout=risk_timeout
+            )
+        except asyncio.TimeoutError:
+            log.warning(f"⏱️ risk_audit timeout after {risk_timeout:.1f}s, blocking decision by fallback")
+            global_state.add_agent_message(
+                "risk_audit",
+                f"TIMEOUT | audit>{risk_timeout:.1f}s, blocked by safety policy",
+                level="warning"
+            )
+            self._emit_runtime_event(
+                run_id=run_id,
+                stream="error",
+                agent="risk_audit",
+                phase="timeout",
+                cycle_id=cycle_id,
+                data={"timeout_seconds": risk_timeout}
+            )
+            audit_result = fallback_audit
+        except Exception as e:
+            self._emit_runtime_event(
+                run_id=run_id,
+                stream="error",
+                agent="risk_audit",
+                phase="error",
+                cycle_id=cycle_id,
+                data={"error": str(e)}
+            )
+            log.error(f"❌ risk_audit failed, blocking decision by fallback: {e}")
+            audit_result = fallback_audit
+
+        self._emit_runtime_event(
+            run_id=run_id,
+            stream="lifecycle",
+            agent="risk_audit",
+            phase="end",
+            cycle_id=cycle_id,
+            data={
+                "passed": audit_result.passed,
+                "risk_level": audit_result.risk_level.value
+            }
+        )
+
+        global_state.guardian_status = "PASSED" if audit_result.passed else "BLOCKED"
+        if not audit_result.passed:
+            global_state.add_log(f"[🛡️ GUARDIAN] ❌ BLOCKED ({audit_result.blocked_reason})")
+            global_state.add_agent_message(
+                "risk_audit",
+                f"BLOCKED | {audit_result.blocked_reason}",
+                level="warning"
+            )
+        else:
+            global_state.add_log(f"[🛡️ GUARDIAN] ✅ PASSED (Risk: {audit_result.risk_level.value})")
+            global_state.add_agent_message(
+                "risk_audit",
+                f"PASSED | Risk: {audit_result.risk_level.value}",
+                level="success"
+            )
+
+        return order_params, audit_result, account_balance, current_position
+
+    def _build_decision_snapshot(
+        self,
+        *,
+        vote_result: Any,
+        quant_analysis: Dict[str, Any],
+        predict_result: Any,
+        risk_level: str,
+        guardian_passed: bool,
+        guardian_reason: Optional[str] = None,
+        action_override: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Create dashboard-ready decision payload with shared enrichment fields."""
+        decision_dict = asdict(vote_result)
+        if action_override:
+            decision_dict['action'] = action_override
+        decision_dict['symbol'] = self.current_symbol
+        decision_dict['timestamp'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        decision_dict['cycle_number'] = global_state.cycle_counter
+        decision_dict['cycle_id'] = global_state.current_cycle_id
+        decision_dict['risk_level'] = risk_level
+        decision_dict['guardian_passed'] = guardian_passed
+        if guardian_reason is not None:
+            decision_dict['guardian_reason'] = guardian_reason
+        decision_dict['prophet_probability'] = predict_result.probability_up if predict_result else 0.5
+        decision_dict['vote_analysis'] = SemanticConverter.convert_analysis_map(decision_dict.get('vote_details', {}))
+        decision_dict['four_layer_status'] = global_state.four_layer_result
+        self._attach_agent_ui_fields(decision_dict)
+
+        if 'vote_details' not in decision_dict:
+            decision_dict['vote_details'] = {}
+        decision_dict['vote_details']['oi_fuel'] = quant_analysis.get('sentiment', {}).get('oi_fuel', {})
+
+        kdj_zone = global_state.four_layer_result.get('kdj_zone')
+        if not kdj_zone:
+            bb_position = global_state.four_layer_result.get('bb_position', 'unknown')
+            bb_to_zone_map = {
+                'upper': 'overbought',
+                'lower': 'oversold',
+                'middle': 'neutral',
+                'unknown': 'unknown'
+            }
+            kdj_zone = bb_to_zone_map.get(bb_position, 'unknown')
+        decision_dict['vote_details']['kdj_zone'] = kdj_zone
+
+        if 'regime' in decision_dict and decision_dict['regime']:
+            decision_dict['regime']['adx'] = global_state.four_layer_result.get('adx', 20)
+
+        if vote_result.regime:
+            global_state.market_regime = vote_result.regime.get('regime', 'Unknown')
+        if vote_result.position:
+            pos_pct = min(max(vote_result.position.get('position_pct', 0), 0), 100)
+            global_state.price_position = f"{pos_pct:.1f}% ({vote_result.position.get('location', 'Unknown')})"
+
+        return decision_dict
 
     def _resolve_ai500_symbols(self):
         """Dynamic resolution of AI500_TOP5 tag"""
@@ -1227,12 +2251,22 @@ class MultiAgentTradingBot:
         global_state.is_running = True
         global_state.current_symbol = self.current_symbol
         # Removed verbose log: Starting trading cycle
+        run_id = f"run_{int(time.time() * 1000)}:{self.current_symbol}"
         
         try:
             # ✅ 使用 run_continuous 中已设置的周期信息
             cycle_num = global_state.cycle_counter
             cycle_id = global_state.current_cycle_id
+            run_id = f"{cycle_id}:{self.current_symbol}" if cycle_id else run_id
             loop = asyncio.get_running_loop()
+            self._emit_runtime_event(
+                run_id=run_id,
+                stream="lifecycle",
+                agent="system",
+                phase="start",
+                cycle_id=cycle_id,
+                data={"cycle": cycle_num, "symbol": self.current_symbol}
+            )
             
             # 每个币种的子日志
             global_state.add_log(f"[📊 SYSTEM] {self.current_symbol} analysis started")
@@ -1499,69 +2533,13 @@ class MultiAgentTradingBot:
                 print("[Step 2/4] 👥 Multi-Agent Analysis (Parallel)...")
             global_state.add_log(f"[📊 SYSTEM] Parallel analysis started for {self.current_symbol}")
 
-            # Define Parallel Tasks with Immediate Message Dispatch Wrappers
-            async def quant_task():
-                res = await self.quant_analyst.analyze_all_timeframes(market_snapshot)
-                # --- Post Quant Analyst Results Immediately ---
-                trend_score = res.get('trend', {}).get('total_trend_score', 0)
-                osc_score = res.get('oscillator', {}).get('total_osc_score', 0)
-                sent_score = res.get('sentiment', {}).get('total_sentiment_score', 0)
-                quant_msg = f"Analysis Complete. Trend={trend_score:+.0f} | Osc={osc_score:+.0f} | Sent={sent_score:+.0f}"
-                global_state.add_agent_message("quant_analyst", quant_msg, level="success")
-                return res
-
-            async def predict_task():
-                if self.agent_config.predict_agent and self.current_symbol in self.predict_agents:
-                    df_15m_features = self.feature_engineer.build_features(processed_dfs['15m'])
-                    latest_features = {}
-                    if not df_15m_features.empty:
-                        latest = df_15m_features.iloc[-1].to_dict()
-                        latest_features = {k: v for k, v in latest.items() if isinstance(v, (int, float)) and not isinstance(v, bool)}
-                    
-                    res = await self.predict_agents[self.current_symbol].predict(latest_features)
-                    # --- Post Predict Agent Results Immediately ---
-                    global_state.prophet_probability = res.probability_up
-                    p_up_pct = res.probability_up * 100
-                    direction = "↗UP" if res.probability_up > 0.55 else ("↘DN" if res.probability_up < 0.45 else "➖NEU")
-                    predict_msg = f"Probability Up: {p_up_pct:.1f}% {direction} (Conf: {res.confidence*100:.0f}%)"
-                    global_state.add_agent_message("predict_agent", predict_msg, level="info")
-                    self.saver.save_prediction(asdict(res), self.current_symbol, snapshot_id, cycle_id=cycle_id)
-                    return res
-                return None
-
-            async def reflection_task_wrapper():
-                total_trades = len(global_state.trade_history)
-                if self.reflection_agent and self.reflection_agent.should_reflect(total_trades):
-                    global_state.add_agent_message("reflection_agent", "🔍 Reflecting on recent trade performance...", level="info")
-                    trades_to_analyze = global_state.trade_history[-10:]
-                    res = await self.reflection_agent.generate_reflection(trades_to_analyze)
-                    # --- Post Reflection Agent Results Immediately ---
-                    if res:
-                        reflection_text = res.to_prompt_text()
-                        global_state.last_reflection = res.raw_response
-                        global_state.last_reflection_text = reflection_text
-                        global_state.reflection_count = self.reflection_agent.reflection_count
-                        global_state.add_agent_message(
-                            "reflection_agent",
-                            f"Reflected on {len(trades_to_analyze)} trades. Insight: {res.insight}",
-                            level="info"
-                        )
-                    return res
-                return None
-
-            # Execute Parallel Tasks
-            analysis_results = await asyncio.gather(
-                quant_task(),
-                predict_task(),
-                reflection_task_wrapper()
+            quant_analysis, predict_result, reflection_result, reflection_text = await self._run_parallel_analysis(
+                run_id=run_id,
+                cycle_id=cycle_id,
+                snapshot_id=snapshot_id,
+                market_snapshot=market_snapshot,
+                processed_dfs=processed_dfs
             )
-            
-            # Process Results
-            quant_analysis = analysis_results[0]
-            predict_result = analysis_results[1]
-            reflection_result = analysis_results[2]
-            
-            reflection_text = reflection_result.to_prompt_text() if reflection_result else global_state.last_reflection_text
             
             # 💉 INJECT MACD DATA (Fix for Missing Data)
             try:
@@ -1942,155 +2920,14 @@ class MultiAgentTradingBot:
             # Store for LLM context
             global_state.four_layer_result = four_layer_result
             
-            # 🆕 MULTI-AGENT SEMANTIC ANALYSIS (LLM/Local)
-            use_trend_llm = self.agent_config.trend_agent_llm
-            use_trend_local = self.agent_config.trend_agent_local
-            use_setup_llm = self.agent_config.setup_agent_llm
-            use_setup_local = self.agent_config.setup_agent_local
-            use_trigger_llm = self.agent_config.trigger_agent_llm
-            use_trigger_local = self.agent_config.trigger_agent_local
-            use_trend = use_trend_llm or use_trend_local
-            use_setup = use_setup_llm or use_setup_local
-            use_trigger = use_trigger_llm or use_trigger_local
-
-            if use_trend and use_trend_llm and use_trend_local:
-                log.info("⚠️ Both TrendAgentLLM and TrendAgent enabled; using LLM version only")
-            if use_setup and use_setup_llm and use_setup_local:
-                log.info("⚠️ Both SetupAgentLLM and SetupAgent enabled; using LLM version only")
-            if use_trigger and use_trigger_llm and use_trigger_local:
-                log.info("⚠️ Both TriggerAgentLLM and TriggerAgent enabled; using LLM version only")
-
-            if use_trend or use_setup or use_trigger:
-                if not (hasattr(self, '_headless_mode') and self._headless_mode):
-                    print("[Step 2.5/5] 🤖 Multi-Agent Semantic Analysis...")
-                try:
-                    # Prepare data for each agent
-                    trend_data = {
-                        'symbol': self.current_symbol,
-                        'close_1h': four_layer_result.get('close_1h', current_price),
-                        'ema20_1h': four_layer_result.get('ema20_1h', current_price),
-                        'ema60_1h': four_layer_result.get('ema60_1h', current_price),
-                        'oi_change': four_layer_result.get('oi_change', 0),
-                        'adx': four_layer_result.get('adx', 20),
-                        'regime': four_layer_result.get('regime', 'unknown')
-                    }
-                    
-                    setup_data = {
-                        'symbol': self.current_symbol,
-                        'close_15m': processed_dfs['15m']['close'].iloc[-1] if len(processed_dfs['15m']) > 0 else current_price,
-                        'kdj_j': four_layer_result.get('kdj_j', 50),
-                        'kdj_k': processed_dfs['15m']['kdj_k'].iloc[-1] if 'kdj_k' in processed_dfs['15m'].columns else 50,
-                        'bb_upper': processed_dfs['15m']['bb_upper'].iloc[-1] if 'bb_upper' in processed_dfs['15m'].columns else current_price * 1.02,
-                        'bb_middle': processed_dfs['15m']['bb_middle'].iloc[-1] if 'bb_middle' in processed_dfs['15m'].columns else current_price,
-                        'bb_lower': processed_dfs['15m']['bb_lower'].iloc[-1] if 'bb_lower' in processed_dfs['15m'].columns else current_price * 0.98,
-                        'trend_direction': trend_1h,  # Use actual 1h trend instead of 'final_action'
-                        'macd_diff': processed_dfs['15m']['macd_diff'].iloc[-1] if 'macd_diff' in processed_dfs['15m'].columns else 0  # 🆕 MACD for 15m analysis
-                    }
-                    
-                    trigger_data = {
-                        'symbol': self.current_symbol,
-                        'pattern': four_layer_result.get('trigger_pattern'),
-                        'rvol': four_layer_result.get('trigger_rvol', 1.0),
-                        'trend_direction': four_layer_result.get('final_action', 'neutral')
-                    }
-                    
-                    # Initialize agents (cached after first use)
-                    tasks = {}
-                    loop = asyncio.get_running_loop()
-                    if use_trend:
-                        if use_trend_llm:
-                            from src.agents.trend_agent import TrendAgentLLM
-                            if not hasattr(self, '_trend_agent_llm'):
-                                self._trend_agent_llm = TrendAgentLLM()
-                            trend_agent = self._trend_agent_llm
-                        else:
-                            from src.agents.trend_agent import TrendAgent
-                            if not hasattr(self, '_trend_agent_local'):
-                                self._trend_agent_local = TrendAgent()
-                            trend_agent = self._trend_agent_local
-                        tasks['trend'] = loop.run_in_executor(None, trend_agent.analyze, trend_data)
-
-                    if use_setup:
-                        if use_setup_llm:
-                            from src.agents.setup_agent import SetupAgentLLM
-                            if not hasattr(self, '_setup_agent_llm'):
-                                self._setup_agent_llm = SetupAgentLLM()
-                            setup_agent = self._setup_agent_llm
-                        else:
-                            from src.agents.setup_agent import SetupAgent
-                            if not hasattr(self, '_setup_agent_local'):
-                                self._setup_agent_local = SetupAgent()
-                            setup_agent = self._setup_agent_local
-                        tasks['setup'] = loop.run_in_executor(None, setup_agent.analyze, setup_data)
-                    
-                    if use_trigger:
-                        if use_trigger_llm:
-                            from src.agents.trigger_agent import TriggerAgentLLM
-                            if not hasattr(self, '_trigger_agent_llm'):
-                                self._trigger_agent_llm = TriggerAgentLLM()
-                            trigger_agent = self._trigger_agent_llm
-                        else:
-                            from src.agents.trigger_agent import TriggerAgent
-                            if not hasattr(self, '_trigger_agent_local'):
-                                self._trigger_agent_local = TriggerAgent()
-                            trigger_agent = self._trigger_agent_local
-                        tasks['trigger'] = loop.run_in_executor(None, trigger_agent.analyze, trigger_data)
-                    
-                    if tasks:
-                        results = await asyncio.gather(*tasks.values())
-                        global_state.semantic_analyses = dict(zip(tasks.keys(), results))
-                    else:
-                        global_state.semantic_analyses = {}
-                    
-                    if global_state.semantic_analyses:
-                        # Log summary via global_state for dashboard
-                        trend_mark = '✓' if global_state.semantic_analyses.get('trend') else '○'
-                        setup_mark = '✓' if global_state.semantic_analyses.get('setup') else '○'
-                        trigger_mark = '✓' if global_state.semantic_analyses.get('trigger') else '○'
-                        global_state.add_log(f"[⚖️ CRITIC] 4-Layer Analysis: Trend={trend_mark} | Setup={setup_mark} | Trigger={trigger_mark}")
-
-                        # Chatroom summaries for semantic agents
-                        trend_result = global_state.semantic_analyses.get('trend')
-                        if isinstance(trend_result, dict):
-                            meta = trend_result.get('metadata', {}) or {}
-                            summary = (
-                                f"Stance: {trend_result.get('stance', 'UNKNOWN')} | "
-                                f"Strength: {meta.get('strength', 'N/A')} | "
-                                f"ADX: {meta.get('adx', 'N/A')} | "
-                                f"OI Fuel: {meta.get('oi_fuel', 'N/A')}"
-                            )
-                            global_state.add_agent_message("trend_agent", summary, level="info")
-
-                        setup_result = global_state.semantic_analyses.get('setup')
-                        if isinstance(setup_result, dict):
-                            meta = setup_result.get('metadata', {}) or {}
-                            summary = (
-                                f"Stance: {setup_result.get('stance', 'UNKNOWN')} | "
-                                f"Zone: {meta.get('zone', 'N/A')} | "
-                                f"KDJ: {meta.get('kdj_j', 'N/A')} | "
-                                f"MACD: {meta.get('macd_signal', 'N/A')}"
-                            )
-                            global_state.add_agent_message("setup_agent", summary, level="info")
-
-                        trigger_result = global_state.semantic_analyses.get('trigger')
-                        if isinstance(trigger_result, dict):
-                            meta = trigger_result.get('metadata', {}) or {}
-                            summary = (
-                                f"Stance: {trigger_result.get('stance', 'UNKNOWN')} | "
-                                f"Pattern: {meta.get('pattern', 'NONE')} | "
-                                f"RVOL: {meta.get('rvol', 'N/A')}x"
-                            )
-                            global_state.add_agent_message("trigger_agent", summary, level="info")
-                
-                except Exception as e:
-                    log.error(f"❌ Multi-Agent analysis failed: {e}")
-                    global_state.semantic_analyses = {
-                        'trend': f"Trend analysis unavailable: {e}",
-                        'setup': f"Setup analysis unavailable: {e}",
-                        'trigger': f"Trigger analysis unavailable: {e}"
-                    }
-            else:
-                global_state.semantic_analyses = {}
+            await self._run_semantic_analysis(
+                run_id=run_id,
+                cycle_id=cycle_id,
+                current_price=current_price,
+                trend_1h=trend_1h,
+                four_layer_result=four_layer_result,
+                processed_dfs=processed_dfs
+            )
 
             # Step 2.6: Multi-Period Parser Agent (feeds Decision)
             try:
@@ -2107,288 +2944,16 @@ class MultiAgentTradingBot:
                 log.error(f"❌ Multi-Period Parser Agent failed: {e}")
                 global_state.multi_period_result = {}
 
-            # Step 3: Decision (Fast trend first, then LLM fallback)
-            selected_agent_outputs = self._collect_selected_agent_outputs(
+            decision_payload, decision_source, fast_signal, vote_result, selected_agent_outputs = await self._run_decision_stage(
+                run_id=run_id,
+                cycle_id=cycle_id,
+                processed_dfs=processed_dfs,
+                quant_analysis=quant_analysis,
                 predict_result=predict_result,
-                reflection_text=reflection_text
-            )
-            # Inject selected agent outputs into Decision Core input
-            if isinstance(quant_analysis, dict):
-                quant_analysis['agent_outputs'] = selected_agent_outputs
-
-            market_data = {
-                'df_5m': processed_dfs['5m'],
-                'df_15m': processed_dfs['15m'],
-                'df_1h': processed_dfs['1h'],
-                'current_price': current_price
-            }
-            regime_info = quant_analysis.get('regime', {})
-
-            fast_signal = None
-            decision_source = 'llm'
-            forced_exit = self._check_forced_exit(current_position_info)
-            llm_enabled = self._is_llm_enabled()
-            if llm_enabled and getattr(self.strategy_engine, 'disable_llm', False):
-                llm_enabled = bool(self.strategy_engine.reload_config())
-
-            if forced_exit:
-                decision_source = 'forced_exit'
-                decision_payload = forced_exit
-                global_state.add_log(f"[🧯 FORCED EXIT] {forced_exit.get('reasoning', 'Forced close')}")
-                try:
-                    conf_val = float(decision_payload.get('confidence', 0) or 0)
-                except (TypeError, ValueError):
-                    conf_val = 0.0
-                global_state.add_agent_message(
-                    "decision_core",
-                    f"Action: {decision_payload.get('action', '').upper()} | Conf: {conf_val:.1f}% | Reason: {decision_payload.get('reasoning', '')} | Source: FORCED",
-                    level="warning"
-                )
-            else:
-                fast_signal = self._detect_fast_trend_signal(processed_dfs.get('5m'))
-
-            if fast_signal:
-                decision_source = 'fast_trend'
-                change_pct = fast_signal['change_pct']
-                volume_ratio = fast_signal['volume_ratio']
-                fast_action = fast_signal['action']
-                fast_confidence = fast_signal['confidence']
-                fast_reason = f"30m trend {change_pct:+.2f}% | RVOL {volume_ratio:.2f}x"
-
-                if not (hasattr(self, '_headless_mode') and self._headless_mode):
-                    print("[Step 3/5] ⚡ Fast Trend Trigger - Immediate entry signal")
-
-                global_state.add_log(f"[⚡ FAST] {fast_action.upper()} | {fast_reason}")
-
-                if fast_action == 'open_long':
-                    bull_conf = fast_confidence
-                    bear_conf = max(0.0, 100.0 - fast_confidence)
-                    bull_stance = 'FAST_UP'
-                    bear_stance = 'HEDGE'
-                    bull_reason = fast_reason
-                    bear_reason = 'Short bias weak vs momentum'
-                else:
-                    bull_conf = max(0.0, 100.0 - fast_confidence)
-                    bear_conf = fast_confidence
-                    bull_stance = 'HEDGE'
-                    bear_stance = 'FAST_DN'
-                    bull_reason = 'Long bias weak vs momentum'
-                    bear_reason = fast_reason
-
-                decision_payload = {
-                    'action': fast_action,
-                    'confidence': fast_confidence,
-                    'position_size_pct': min(100.0, max(10.0, fast_confidence)),
-                    'reasoning': fast_reason,
-                    'bull_perspective': {
-                        'bull_confidence': bull_conf,
-                        'stance': bull_stance,
-                        'bullish_reasons': bull_reason
-                    },
-                    'bear_perspective': {
-                        'bear_confidence': bear_conf,
-                        'stance': bear_stance,
-                        'bearish_reasons': bear_reason
-                    }
-                }
-                try:
-                    conf_val = float(decision_payload.get('confidence', 0) or 0)
-                except (TypeError, ValueError):
-                    conf_val = 0.0
-                global_state.add_agent_message(
-                    "decision_core",
-                    f"Action: {decision_payload.get('action').upper()} | Conf: {conf_val:.1f}% | Reason: {decision_payload.get('reasoning')[:100]}... | Source: FAST",
-                    level="info"
-                )
-            elif not forced_exit:
-                if llm_enabled:
-                    if not (hasattr(self, '_headless_mode') and self._headless_mode):
-                        print("[Step 3/5] 🧠 DeepSeek LLM - Making decision...")
-
-                    global_state.add_agent_message("decision_core", "🧠 DeepSeek LLM is weighing options...", level="info")
-
-                    # Build Context with POSITION INFO
-                    market_context_text = self._build_market_context(
-                        quant_analysis=quant_analysis,
-                        predict_result=predict_result,
-                        market_data=market_data,
-                        regime_info=regime_info,
-                        position_info=current_position_info,  # ✅ Pass Position Info
-                        selected_agent_outputs=selected_agent_outputs
-                    )
-
-                    market_context_data = {
-                        'symbol': self.current_symbol,
-                        'timestamp': datetime.now().isoformat(),
-                        'current_price': current_price,
-                        'position_side': (current_position_info or {}).get('side')
-                    }
-
-                    # 🐂🐻 Parallel Perspectives (Chatroom Mode)
-                    log.info("🐂🐻 Gathering Bull/Bear perspectives in PARALLEL...")
-                    bull_task = loop.run_in_executor(None, self.strategy_engine.get_bull_perspective, market_context_text)
-                    bear_task = loop.run_in_executor(None, self.strategy_engine.get_bear_perspective, market_context_text)
-
-                    bull_p, bear_p = await asyncio.gather(bull_task, bear_task)
-
-                    # Post to Chatroom
-                    bull_summary = bull_p.get('bullish_reasons', 'No reasons provided')
-                    bear_summary = bear_p.get('bearish_reasons', 'No reasons provided')
-                    global_state.add_agent_message("bull_agent", f"Stance: {bull_p.get('stance')} | Reason: {bull_summary}", level="success")
-                    global_state.add_agent_message("bear_agent", f"Stance: {bear_p.get('stance')} | Reason: {bear_summary}", level="warning")
-
-                    # Call DeepSeek with pre-computed perspectives
-                    decision_payload = self.strategy_engine.make_decision(
-                        market_context_text=market_context_text,
-                        market_context_data=market_context_data,
-                        reflection=reflection_text,
-                        bull_perspective=bull_p,
-                        bear_perspective=bear_p
-                    )
-
-                    # Post Decision to Chatroom
-                    try:
-                        conf_val = float(decision_payload.get('confidence', 0) or 0)
-                    except (TypeError, ValueError):
-                        conf_val = 0.0
-                    global_state.add_agent_message(
-                        "decision_core",
-                        f"Action: {decision_payload.get('action').upper()} | Conf: {conf_val:.1f}% | Reason: {decision_payload.get('reasoning')}",
-                        level="info"
-                    )
-                else:
-                    if not (hasattr(self, '_headless_mode') and self._headless_mode):
-                        print("[Step 3/5] ⚖️ DecisionCore - Rule-based decision...")
-                    
-                    global_state.add_agent_message("decision_core", "⚖️ Running rule-based decision logic...", level="info")
-                    decision_source = 'decision_core'
-                    vote_core = await self.decision_core.make_decision(
-                        quant_analysis=quant_analysis,
-                        predict_result=predict_result,
-                        market_data=market_data
-                    )
-                    size_pct = 0.0
-                    if vote_core.trade_params and self.max_position_size:
-                        size_pct = min(
-                            100.0,
-                            max(5.0, (vote_core.trade_params.get('position_size', 0) / self.max_position_size) * 100)
-                        )
-                    decision_payload = {
-                        'action': vote_core.action,
-                        'confidence': vote_core.confidence,
-                        'position_size_pct': size_pct,
-                        'reasoning': vote_core.reason,
-                        'bull_perspective': {
-                            'bull_confidence': 50,
-                            'stance': 'NEUTRAL',
-                            'bullish_reasons': 'LLM disabled'
-                        },
-                        'bear_perspective': {
-                            'bear_confidence': 50,
-                            'stance': 'NEUTRAL',
-                            'bearish_reasons': 'LLM disabled'
-                        }
-                    }
-                    try:
-                        conf_val = float(decision_payload.get('confidence', 0) or 0)
-                    except (TypeError, ValueError):
-                        conf_val = 0.0
-                    global_state.add_agent_message(
-                        "decision_core",
-                        f"Action: {decision_payload.get('action').upper()} | Conf: {conf_val:.1f}% | Reason: {decision_payload.get('reasoning')} | Source: RULE",
-                        level="info"
-                    )
-
-            # ... Rest of logic stays similar ...
-            if 'bull_perspective' not in decision_payload:
-                decision_payload['bull_perspective'] = {
-                    'bull_confidence': 50,
-                    'stance': 'NEUTRAL',
-                    'bullish_reasons': 'N/A'
-                }
-            if 'bear_perspective' not in decision_payload:
-                decision_payload['bear_perspective'] = {
-                    'bear_confidence': 50,
-                    'stance': 'NEUTRAL',
-                    'bearish_reasons': 'N/A'
-                }
-            decision_payload['action'] = normalize_action(
-                decision_payload.get('action'),
-                position_side=(current_position_info or {}).get('side')
-            )
-            
-            # 转换为 VoteResult 兼容格式
-            # (Need to check if i need to include rest of the function)
-
-            
-            # 转换为 VoteResult 兼容格式
-            from src.agents.decision_core_agent import VoteResult
-            
-            # Extract scores for dashboard
-            q_trend = quant_analysis.get('trend', {})
-            q_osc = quant_analysis.get('oscillator', {})
-            q_sent = quant_analysis.get('sentiment', {})
-            q_comp = quant_analysis.get('comprehensive', {})
-            
-            # Construct vote_details similar to DecisionCore
-            vote_details = {
-                'deepseek': decision_payload.get('confidence', 0),
-                'strategist_total': q_comp.get('score', 0),
-                # Trend
-                'trend_1h': q_trend.get('trend_1h_score', 0),
-                'trend_15m': q_trend.get('trend_15m_score', 0),
-                'trend_5m': q_trend.get('trend_5m_score', 0),
-                # Oscillator
-                'oscillator_1h': q_osc.get('osc_1h_score', 0),
-                'oscillator_15m': q_osc.get('osc_15m_score', 0),
-                'oscillator_5m': q_osc.get('osc_5m_score', 0),
-                # Sentiment
-                'sentiment': q_sent.get('total_sentiment_score', 0),
-                # Prophet
-                'prophet': predict_result.probability_up if predict_result else 0.5,
-                # 🐂🐻 Bullish/Bearish Perspective Analysis
-                'bull_confidence': decision_payload.get('bull_perspective', {}).get('bull_confidence', 50),
-                'bear_confidence': decision_payload.get('bear_perspective', {}).get('bear_confidence', 50),
-                'bull_stance': decision_payload.get('bull_perspective', {}).get('stance', 'UNKNOWN'),
-                'bear_stance': decision_payload.get('bear_perspective', {}).get('stance', 'UNKNOWN'),
-                'bull_reasons': decision_payload.get('bull_perspective', {}).get('bullish_reasons', ''),
-                'bear_reasons': decision_payload.get('bear_perspective', {}).get('bearish_reasons', '')
-            }
-
-            if fast_signal:
-                vote_details['fast_trend_change_pct'] = fast_signal.get('change_pct')
-                vote_details['fast_trend_volume_ratio'] = fast_signal.get('volume_ratio')
-                vote_details['fast_trend_window'] = fast_signal.get('window_minutes')
-            
-            # Determine Regime from Trend Score using Semantic Converter
-            trend_score_total = quant_analysis.get('trend', {}).get('total_trend_score', 0)
-            regime_desc = SemanticConverter.get_trend_semantic(trend_score_total)
-            
-            # Determine Position details from LLM Decision
-            pos_pct = decision_payload.get('position_size_pct', 0)
-            if not pos_pct and decision_payload.get('position_size_usd') and self.max_position_size:
-                 # Fallback: estimate pct if usd is provided
-                 pos_pct = (decision_payload.get('position_size_usd') / self.max_position_size) * 100
-                 # Clamp to reasonable range (仓位大小不应超过100%)
-                 pos_pct = min(pos_pct, 100)
-            
-            # 获取真正的价格位置信息（从 regime_result - Python calculated）
-            # Note: regime_info (from quant_analysis) is empty because we separated logic.
-            # Use regime_result calculated in Step 2.75 instead for accurate Position Data.
-            price_position_info = regime_result.get('position', {}) if regime_result else {}
-            
-            vote_result = VoteResult(
-                action=decision_payload.get('action', 'wait'),
-                confidence=decision_payload.get('confidence', 0),
-                weighted_score=decision_payload.get('confidence', 0) - 50,  # -50 to +50
-                vote_details=vote_details,
-                multi_period_aligned=True,
-                reason=decision_payload.get('reasoning', 'DeepSeek LLM decision'),
-                regime={
-                    'regime': regime_desc,
-                    'confidence': decision_payload.get('confidence', 0)
-                },
-                position=price_position_info  # 使用真正的价格位置信息
+                reflection_text=reflection_text,
+                current_price=current_price,
+                current_position_info=current_position_info,
+                regime_result=regime_result
             )
             
             # 保存完整的 LLM 交互日志 (Input, Process, Output)
@@ -2472,54 +3037,14 @@ class MultiAgentTradingBot:
                 global_state.add_log(f"⚖️ DecisionCoreAgent (The Critic): Context(Regime={regime_txt}, Pos={pos_txt}) => Vote: {actual_action.upper()} ({vote_result.reason})")
                 
                 # Update State with WAIT/HOLD decision
-                decision_dict = asdict(vote_result)
-                decision_dict['action'] = actual_action  # ✅ Use 'wait' instead of 'hold'
-                decision_dict['symbol'] = self.current_symbol
-                decision_dict['timestamp'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                decision_dict['cycle_number'] = global_state.cycle_counter
-                decision_dict['cycle_id'] = global_state.current_cycle_id
-                # Add implicit safe risk for Wait/Hold
-                decision_dict['risk_level'] = 'safe'
-                decision_dict['guardian_passed'] = True
-                decision_dict['prophet_probability'] = predict_result.probability_up if predict_result else 0.5  # 🔮 Prophet
-                
-                # ✅ Add Semantic Analysis for Dashboard
-                decision_dict['vote_analysis'] = SemanticConverter.convert_analysis_map(decision_dict.get('vote_details', {}))
-                
-                # 🆕 Add Four-Layer Status for Dashboard
-                decision_dict['four_layer_status'] = global_state.four_layer_result
-                self._attach_agent_ui_fields(decision_dict)
-                
-                # 🆕 Add OI Fuel and KDJ Zone to vote_details for Dashboard
-                if 'vote_details' not in decision_dict:
-                    decision_dict['vote_details'] = {}
-                decision_dict['vote_details']['oi_fuel'] = quant_analysis.get('sentiment', {}).get('oi_fuel', {})
-                
-                # 🔴 Bug #6 Fix: Use explicit kdj_zone if available, else map bb_position
-                kdj_zone = global_state.four_layer_result.get('kdj_zone')
-                if not kdj_zone:
-                    bb_position = global_state.four_layer_result.get('bb_position', 'unknown')
-                    bb_to_zone_map = {
-                        'upper': 'overbought',
-                        'lower': 'oversold',
-                        'middle': 'neutral',
-                        'unknown': 'unknown'
-                    }
-                    kdj_zone = bb_to_zone_map.get(bb_position, 'unknown')
-                decision_dict['vote_details']['kdj_zone'] = kdj_zone
-                
-                # 🔧 Fix: Inject ADX into regime object for Dashboard display
-                if 'regime' in decision_dict and decision_dict['regime']:
-                    decision_dict['regime']['adx'] = global_state.four_layer_result.get('adx', 20)
-                
-                # Update Market Context
-                if vote_result.regime:
-                    global_state.market_regime = vote_result.regime.get('regime', 'Unknown')
-                if vote_result.position:
-                    # Safety clamp: ensure position_pct is 0-100
-                    pos_pct = min(max(vote_result.position.get('position_pct', 0), 0), 100)
-                    global_state.price_position = f"{pos_pct:.1f}% ({vote_result.position.get('location', 'Unknown')})"
-                    
+                decision_dict = self._build_decision_snapshot(
+                    vote_result=vote_result,
+                    quant_analysis=quant_analysis,
+                    predict_result=predict_result,
+                    risk_level='safe',
+                    guardian_passed=True,
+                    action_override=actual_action
+                )
                 global_state.update_decision(decision_dict)
 
                 return {
@@ -2534,210 +3059,28 @@ class MultiAgentTradingBot:
             # Step 4: 审计 - 风控守护者 (The Guardian)
             if not (hasattr(self, '_headless_mode') and self._headless_mode):
                 print(f"[Step 4/5] 👮 The Guardian (Risk Audit) - Final review...")
-            
-            # LOG 3: Critic (Action Case) - if not already logged (Wait case returns early)
-            regime_txt = vote_result.regime.get('regime', 'Unknown') if vote_result.regime else 'Unknown'
-            # Note: Wait case returns, so if we are here, it's an action.
-            global_state.add_log(f"⚖️ DecisionCoreAgent (The Critic): Context(Regime={regime_txt}) => Vote: {vote_result.action.upper()} (Conf: {vote_result.confidence:.0f}%)")
-            
-            global_state.guardian_status = "Auditing..."
-            global_state.guardian_status = "Auditing..."
-            
-            order_params = self._build_order_params(
-                action=vote_result.action,
+            order_params, audit_result, account_balance, current_position = await self._run_risk_audit_stage(
+                run_id=run_id,
+                cycle_id=cycle_id,
+                vote_result=vote_result,
+                quant_analysis=quant_analysis,
+                processed_dfs=processed_dfs,
                 current_price=current_price,
-                confidence=vote_result.confidence,
-                position_info=current_position_info
+                current_position_info=current_position_info,
+                regime_result=regime_result
             )
-            order_params['symbol'] = self.current_symbol
-            
-            print(f"  ✅ 信号方向: {vote_result.action}")
-            print(f"  ✅ 综合信心: {vote_result.confidence:.1f}%")
-            if vote_result.regime:
-                print(f"  📊 市场状态: {vote_result.regime['regime']}")
-            if vote_result.position:
-                print(f"  📍 价格位置: {min(max(vote_result.position['position_pct'], 0), 100):.1f}% ({vote_result.position['location']})")
-            
-            # 将对抗式上下文注入订单参数，以便风控审计使用
-            order_params['regime'] = vote_result.regime
-            order_params['position'] = vote_result.position
-            order_params['confidence'] = vote_result.confidence
-            osc_data = quant_analysis.get('oscillator', {}) if isinstance(quant_analysis, dict) else {}
-            order_params['oscillator_scores'] = {
-                'osc_1h_score': osc_data.get('osc_1h_score', 0),
-                'osc_15m_score': osc_data.get('osc_15m_score', 0),
-                'osc_5m_score': osc_data.get('osc_5m_score', 0)
-            }
-            sentiment_data = quant_analysis.get('sentiment', {}) if isinstance(quant_analysis, dict) else {}
-            order_params['sentiment_score'] = sentiment_data.get('total_sentiment_score', 0)
-            order_params.update(self._get_symbol_trade_stats(self.current_symbol))
-            trend_data = quant_analysis.get('trend', {}) if isinstance(quant_analysis, dict) else {}
-            order_params['trend_scores'] = {
-                'trend_1h_score': trend_data.get('trend_1h_score', 0),
-                'trend_15m_score': trend_data.get('trend_15m_score', 0),
-                'trend_5m_score': trend_data.get('trend_5m_score', 0)
-            }
-            try:
-                if self.agent_config.position_analyzer_agent:
-                    from src.agents.position_analyzer_agent import PositionAnalyzer
-                    df_1h = processed_dfs.get('1h')
-                    if df_1h is not None and len(df_1h) > 5:
-                        analyzer = PositionAnalyzer()
-                        order_params['position_1h'] = analyzer.analyze_position(
-                            df_1h,
-                            current_price,
-                            timeframe='1h'
-                        )
-            except Exception:
-                pass
-            
-            # Step 5 (Embedded in Step 4 for clean output)
-            
-            # 获取账户信息
-            # Using _get_full_account_info helper (we will create it or inline logic)
-            # Fetch directly from client to get full details
-            try:
-                if self.test_mode:
-                    # Test Mode: Use virtual balance
-                    wallet_bal = global_state.virtual_balance
-                    avail_bal = global_state.virtual_balance
-                    
-                    # Calculate unrealized PnL from open positions
-                    unrealized_pnl = sum(
-                        pos.get('unrealized_pnl', 0) 
-                        for pos in global_state.virtual_positions.values()
-                    )
-                    
-                    # Total Equity = Balance + Unrealized PnL
-                    total_equity = wallet_bal + unrealized_pnl
-                    
-                    # Total PnL = Current Equity - Initial Balance
-                    initial_balance = global_state.virtual_initial_balance
-                    total_pnl = total_equity - initial_balance
-                    
-                    # Update State (must call to sync with frontend)
-                    global_state.update_account(
-                        equity=total_equity,
-                        available=avail_bal,
-                        wallet=wallet_bal,
-                        pnl=total_pnl  # ✅ Fix: Pass total PnL, not unrealized only
-                    )
-                    
-                    account_balance = avail_bal
-                else:
-                    acc_info = self.client.get_futures_account()
-                    # acc_info keys: 'total_wallet_balance', 'total_unrealized_profit', 'available_balance', etc. (snake_case)
-                    wallet_bal = float(acc_info.get('total_wallet_balance', 0))
-                    unrealized_pnl = float(acc_info.get('total_unrealized_profit', 0))
-                    avail_bal = float(acc_info.get('available_balance', 0))
-                    total_equity = wallet_bal + unrealized_pnl
-                    
-                    # Update State
-                    global_state.update_account(
-                        equity=total_equity,
-                        available=avail_bal,
-                        wallet=wallet_bal,
-                        pnl=unrealized_pnl
-                    )
-                    global_state.record_account_success()  # Track success
-                    
-                    account_balance = avail_bal # For backward compatibility with audit
-            except Exception as e:
-                log.error(f"Failed to fetch account info: {e}")
-                global_state.record_account_failure()  # Track failure
-                global_state.add_log(f"❌ Account info fetch failed: {str(e)}")  # Dashboard log
-                account_balance = 0.0
-
-            current_position = self._get_current_position()
-            
-            # 提取 ATR 百分比用于动态止损计算
-            atr_pct = regime_result.get('atr_pct', None) if regime_result else None
-            
-            global_state.add_agent_message("risk_audit", "🛡️ Guardian is auditing risk and positions...", level="info")
-            # 执行审计
-            audit_result = await self.risk_audit.audit_decision(
-                decision=order_params,
-                current_position=current_position,
-                account_balance=account_balance,
-                current_price=current_price,
-                atr_pct=atr_pct  # 传递 ATR 用于动态止损计算
-            )
-            
-            # Update Dashboard Guardian Status
-            global_state.guardian_status = "PASSED" if audit_result.passed else "BLOCKED"
-            
-            # LOG 4: Guardian (Single Line)
-            if not audit_result.passed:
-                 global_state.add_log(f"[🛡️ GUARDIAN] ❌ BLOCKED ({audit_result.blocked_reason})")
-            else:
-                 global_state.add_log(f"[🛡️ GUARDIAN] ✅ PASSED (Risk: {audit_result.risk_level.value})")
-            
-            # Chatroom: Risk Audit summary
-            if audit_result.passed:
-                global_state.add_agent_message(
-                    "risk_audit",
-                    f"PASSED | Risk: {audit_result.risk_level.value}",
-                    level="success"
-                )
-            else:
-                global_state.add_agent_message(
-                    "risk_audit",
-                    f"BLOCKED | {audit_result.blocked_reason}",
-                    level="warning"
-                )
             
             # ✅ Update Global State with FULL Decision info (Vote + Audit)
-            decision_dict = asdict(vote_result)
-            decision_dict['symbol'] = self.current_symbol
-            decision_dict['timestamp'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            decision_dict['cycle_number'] = global_state.cycle_counter
-            decision_dict['cycle_id'] = global_state.current_cycle_id
-            
-            # Inject Risk Data
-            decision_dict['risk_level'] = audit_result.risk_level.value
-            decision_dict['guardian_passed'] = audit_result.passed
-            decision_dict['guardian_reason'] = audit_result.blocked_reason
-            decision_dict['prophet_probability'] = predict_result.probability_up if predict_result else 0.5  # 🔮 Prophet
-            
-            # ✅ Add Semantic Analysis for Dashboard
-            decision_dict['vote_analysis'] = SemanticConverter.convert_analysis_map(decision_dict.get('vote_details', {}))
-            
-            # 🆕 Add Four-Layer Status for Dashboard
-            decision_dict['four_layer_status'] = global_state.four_layer_result
-            self._attach_agent_ui_fields(decision_dict)
-            
-            # 🆕 Add OI Fuel and KDJ Zone to vote_details for Dashboard
-            if 'vote_details' not in decision_dict:
-                decision_dict['vote_details'] = {}
-            decision_dict['vote_details']['oi_fuel'] = quant_analysis.get('sentiment', {}).get('oi_fuel', {})
-            
-            # 🔴 Bug #6 Fix: Use explicit kdj_zone if available, else map bb_position
-            kdj_zone = global_state.four_layer_result.get('kdj_zone')
-            if not kdj_zone:
-                bb_position = global_state.four_layer_result.get('bb_position', 'unknown')
-                bb_to_zone_map = {
-                    'upper': 'overbought',
-                    'lower': 'oversold',
-                    'middle': 'neutral',
-                    'unknown': 'unknown'
-                }
-                kdj_zone = bb_to_zone_map.get(bb_position, 'unknown')
-            decision_dict['vote_details']['kdj_zone'] = kdj_zone
-            
-            # 🔧 Fix: Inject ADX into regime object for Dashboard display
-            if 'regime' in decision_dict and decision_dict['regime']:
-                decision_dict['regime']['adx'] = global_state.four_layer_result.get('adx', 20)
-            
-            # Update Market Context
-            if vote_result.regime:
-                global_state.market_regime = vote_result.regime.get('regime', 'Unknown')
-            if vote_result.position:
-                # Safety clamp: ensure position_pct is 0-100
-                pos_pct = min(max(vote_result.position.get('position_pct', 0), 0), 100)
-                global_state.price_position = f"{pos_pct:.1f}% ({vote_result.position.get('location', 'Unknown')})"
+            decision_dict = self._build_decision_snapshot(
+                vote_result=vote_result,
+                quant_analysis=quant_analysis,
+                predict_result=predict_result,
+                risk_level=audit_result.risk_level.value,
+                guardian_passed=audit_result.passed,
+                guardian_reason=audit_result.blocked_reason
+            )
             
             # ✅ Save Risk Audit Report
-            from dataclasses import asdict as dc_asdict
             self.saver.save_risk_audit(
                 audit_result={
                     'passed': audit_result.passed,
@@ -2797,6 +3140,14 @@ class MultiAgentTradingBot:
                     'current_price': current_price
                 }
             # Step 5: 执行引擎
+            self._emit_runtime_event(
+                run_id=run_id,
+                stream="lifecycle",
+                agent="executor",
+                phase="start",
+                cycle_id=cycle_id,
+                data={"mode": "test" if self.test_mode else "live"}
+            )
             if self.test_mode:
                 if not (hasattr(self, '_headless_mode') and self._headless_mode):
                     print("\n[Step 5/5] 🧪 TestMode - 模拟执行...")
@@ -2943,9 +3294,16 @@ class MultiAgentTradingBot:
 
                 # 🎯 递增周期开仓计数器
                 if is_open_action(vote_result.action):
-                     global_state.cycle_positions_opened += 1
-                     log.info(f"Positions opened this cycle: {global_state.cycle_positions_opened}/1")
-                
+                    global_state.cycle_positions_opened += 1
+                    log.info(f"Positions opened this cycle: {global_state.cycle_positions_opened}/1")
+                self._emit_runtime_event(
+                    run_id=run_id,
+                    stream="lifecycle",
+                    agent="executor",
+                    phase="end",
+                    cycle_id=cycle_id,
+                    data={"status": "success", "mode": "test", "action": vote_result.action}
+                )
                 return {
                     'status': 'success',
                     'action': vote_result.action,
@@ -2972,6 +3330,14 @@ class MultiAgentTradingBot:
                 except Exception as e:
                     log.error(f"Live order execution failed: {e}", exc_info=True)
                     global_state.add_log(f"[Execution] ❌ Live Order Failed: {e}")
+                    self._emit_runtime_event(
+                        run_id=run_id,
+                        stream="error",
+                        agent="executor",
+                        phase="error",
+                        cycle_id=cycle_id,
+                        data={"status": "failed", "mode": "live", "error": str(e)}
+                    )
                     return {
                         'status': 'failed',
                         'action': vote_result.action,
@@ -3085,6 +3451,14 @@ class MultiAgentTradingBot:
                     if len(global_state.trade_history) > 50:
                         global_state.trade_history.pop()
                 
+                self._emit_runtime_event(
+                    run_id=run_id,
+                    stream="lifecycle",
+                    agent="executor",
+                    phase="end",
+                    cycle_id=cycle_id,
+                    data={"status": "success", "mode": "live", "action": vote_result.action}
+                )
                 return {
                     'status': 'success',
                     'action': vote_result.action,
@@ -3094,6 +3468,14 @@ class MultiAgentTradingBot:
             else:
                 print("  ❌ 订单执行失败")
                 global_state.add_log(f"❌ Order Failed: {order_params['action'].upper()}")
+                self._emit_runtime_event(
+                    run_id=run_id,
+                    stream="error",
+                    agent="executor",
+                    phase="error",
+                    cycle_id=cycle_id,
+                    data={"status": "failed", "mode": "live", "error": "execution_failed"}
+                )
                 return {
                     'status': 'failed',
                     'action': vote_result.action,
@@ -3104,6 +3486,14 @@ class MultiAgentTradingBot:
         except Exception as e:
             log.error(f"Trading cycle exception: {e}", exc_info=True)
             global_state.add_log(f"Error: {e}")
+            self._emit_runtime_event(
+                run_id=run_id,
+                stream="error",
+                agent="system",
+                phase="error",
+                cycle_id=global_state.current_cycle_id,
+                data={"status": "error", "error": str(e)}
+            )
             return {
                 'status': 'error',
                 'details': {'error': str(e)}
@@ -4207,6 +4597,7 @@ class MultiAgentTradingBot:
 
                 # 🧹 Clear chatroom messages each cycle (show current cycle only)
                 global_state.clear_agent_messages()
+                global_state.clear_agent_events()
 
                 # 🧪 Test Mode: reset per-cycle baseline for PnL display
                 if self.test_mode:

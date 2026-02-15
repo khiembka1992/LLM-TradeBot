@@ -158,6 +158,41 @@ class TestAgentConfigGetEnabledAgents:
         assert len(enabled) == 14  # Total number of optional agents
 
 
+class TestAgentConfigTimeouts:
+    """Test timeout runtime policy loading and overrides."""
+
+    def test_default_timeouts_exist(self):
+        config = AgentConfig()
+        assert config.get_timeout('quant_analyst', 1.0) > 0
+        assert config.get_timeout('predict_agent', 1.0) > 0
+        assert config.get_timeout('reflection_agent', 1.0) > 0
+
+    def test_timeouts_from_config(self):
+        config = AgentConfig.from_dict({
+            'agents': {
+                'timeouts': {
+                    'quant_analyst': 12,
+                    'semantic_agent': 18.5
+                }
+            }
+        })
+        assert config.get_timeout('quant_analyst', 25.0) == 12.0
+        assert config.get_timeout('semantic_agent', 35.0) == 18.5
+        # Unknown key falls back to provided default
+        assert config.get_timeout('unknown_agent', 9.0) == 9.0
+
+    def test_timeout_env_override(self, monkeypatch):
+        monkeypatch.setenv('AGENT_TIMEOUT_QUANT_ANALYST', '33')
+        config = AgentConfig.from_dict({
+            'agents': {
+                'timeouts': {
+                    'quant_analyst': 15
+                }
+            }
+        })
+        assert config.get_timeout('quant_analyst', 25.0) == 33.0
+
+
 class TestAgentConfigStr:
     """Test __str__() representation"""
     

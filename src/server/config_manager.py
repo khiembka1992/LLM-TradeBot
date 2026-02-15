@@ -205,8 +205,14 @@ class ConfigManager:
                 with open(config_yaml_path, 'r', encoding='utf-8') as f:
                     config_data = yaml.safe_load(f) or {}
             
-            # Update agents section
-            config_data['agents'] = agents
+            # Update agents section while preserving non-toggle policy keys (e.g. timeouts).
+            existing_agents = config_data.get('agents', {})
+            if not isinstance(existing_agents, dict):
+                existing_agents = {}
+            merged_agents = dict(existing_agents)
+            for key, value in agents.items():
+                merged_agents[key] = value
+            config_data['agents'] = merged_agents
             
             # Write back to config.yaml
             with open(config_yaml_path, 'w', encoding='utf-8') as f:
@@ -214,6 +220,8 @@ class ConfigManager:
             
             # Also set environment variables for immediate effect
             for agent_name, enabled in agents.items():
+                if not isinstance(enabled, bool):
+                    continue
                 env_key = f"AGENT_{agent_name.upper()}"
                 os.environ[env_key] = 'true' if enabled else 'false'
             
@@ -247,8 +255,13 @@ class ConfigManager:
                     agents['trigger_agent_llm'] = agents['trigger_agent']
                 if 'reflection_agent' in agents and 'reflection_agent_llm' not in agents:
                     agents['reflection_agent_llm'] = agents['reflection_agent']
-                # Merge with defaults (config values override defaults)
-                return {**defaults, **agents}
+                # Merge with defaults (config values override defaults) while
+                # returning toggle fields only for UI compatibility.
+                normalized = {}
+                for key in defaults.keys():
+                    if key in agents:
+                        normalized[key] = bool(agents.get(key))
+                return {**defaults, **normalized}
         except Exception as e:
             print(f"[ConfigManager] Error reading agents config: {e}")
         

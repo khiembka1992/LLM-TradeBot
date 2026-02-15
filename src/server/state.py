@@ -92,6 +92,7 @@ class SharedState:
     agent_messages: List[Dict] = field(default_factory=list)
     last_agent_message: Dict[str, str] = field(default_factory=dict)
     last_agent_message_cycle: Dict[str, int] = field(default_factory=dict)
+    agent_events: List[Dict] = field(default_factory=list)
     
     # [NEW] LLM Config & Prompts Display
     agent_prompts: Dict[str, str] = field(default_factory=dict)
@@ -213,6 +214,18 @@ class SharedState:
             self.agent_messages = []
             self.last_agent_message = {}
             self.last_agent_message_cycle = {}
+
+    def add_agent_event(self, event: Dict[str, Any]):
+        """Append structured runtime event for debugging/observability."""
+        with self._lock:
+            self.agent_events.append(self._serialize_obj(event))
+            if len(self.agent_events) > 500:
+                self.agent_events.pop(0)
+
+    def clear_agent_events(self):
+        """Clear runtime events for a new cycle."""
+        with self._lock:
+            self.agent_events = []
     
     def init_balance(self, balance: float, initial_balance: Optional[float] = None):
         """Initialize the starting balance for tracking."""
