@@ -1096,6 +1096,7 @@ async def run_backtest(config: BacktestRequest, authenticated: bool = Depends(ve
             llm_cache=config.llm_cache,  # Cache LLM responses
             llm_throttle_ms=config.llm_throttle_ms  # Rate limiting
         )
+        config_payload = config.model_dump() if hasattr(config, "model_dump") else config.dict()
         
         engine = BacktestEngine(bt_config)
         
@@ -1232,7 +1233,7 @@ async def run_backtest(config: BacktestRequest, authenticated: bool = Depends(ve
                         
                         db_id = storage.save_backtest(
                             run_id=run_id,
-                            config=config.dict(),
+                            config=config_payload,
                             metrics=response_data['metrics'],
                             trades=trades,
                             equity_curve=equity_curve
@@ -1267,7 +1268,7 @@ async def run_backtest(config: BacktestRequest, authenticated: bool = Depends(ve
                                 'id': db_id,
                                 'run_id': run_id,
                                 'run_time': run_time.isoformat(),
-                                'config': config.dict()
+                                'config': config_payload
                             }, f, indent=2, ensure_ascii=False)
                         
                         # 2. Save results summary
