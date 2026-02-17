@@ -111,6 +111,21 @@ docker-compose down
 
 ---
 
+## 快速自检（推荐小白先跑）
+
+```bash
+# 运行完整测试集（自动隔离外部 pytest 插件污染）
+python3 scripts/run_tests.py
+```
+
+如需只跑某个文件，可附加 pytest 参数：
+
+```bash
+python3 scripts/run_tests.py -q tests/test_agent_config.py
+```
+
+---
+
 ## 常见问题
 
 ### Q: Python 版本不符合要求？
