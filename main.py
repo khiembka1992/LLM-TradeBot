@@ -4788,6 +4788,8 @@ class MultiAgentTradingBot:
         # mode == "live"
         self.test_mode = False
         global_state.is_test_mode = False
+        # Prevent TEST session realized PnL from leaking into LIVE account display.
+        global_state.cumulative_realized_pnl = 0.0
         
         # Force reload .env file to pick up latest API keys from settings
         from dotenv import load_dotenv
@@ -4837,7 +4839,7 @@ class MultiAgentTradingBot:
             "trading_mode": "live",
             "is_test_mode": False,
             "available_balance": float(avail or 0.0),
-            "wallet_balance": float(acc_info.get('wallet_balance') or 0.0),
+            "wallet_balance": float(acc_info.get('total_wallet_balance') or 0.0),
             "total_equity": equity
         }
 

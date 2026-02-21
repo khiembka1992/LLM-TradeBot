@@ -602,7 +602,9 @@ function updateDashboard() {
             }
 
             const tradeHistory = Array.isArray(data.trade_history) ? data.trade_history : [];
-            const baseline = FIXED_INITIAL_BALANCE;
+            const baseline = Number.isFinite(balanceSnapshot?.initial)
+                ? balanceSnapshot.initial
+                : FIXED_INITIAL_BALANCE;
             const tradeCurve = buildBalanceSeriesFromTrades(tradeHistory, baseline);
 
             if (tradeCurve.length) {
@@ -1054,13 +1056,56 @@ function buildBalanceSeriesFromTrades(trades = [], initialBalance = 0) {
     return series;
 }
 
-function computeRealtimeBalance({ positions = [], trades = [] }) {
-    const initial = FIXED_INITIAL_BALANCE;
-    const realized = sumRealizedFromTrades(trades);
-    const unrealized = sumUnrealizedFromPositions(positions);
-    const totalPnl = realized + unrealized;
-    const realtimeBalance = initial + totalPnl;
-    return { initial, realized, unrealized, totalPnl, realtimeBalance, source: 'trades' };
+function toFiniteNumber(value, fallback = null) {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : fallback;
+}
+
+function computeRealtimeBalance({ account, system, virtualAccount, positions = [], trades = [] }) {
+    const isTestMode = Boolean(system?.is_test_mode);
+
+    // Prefer backend account payload so LIVE mode shows true balance instead of a fixed baseline.
+    const equity = toFiniteNumber(account?.total_equity);
+    const wallet = toFiniteNumber(account?.wallet_balance);
+    const totalPnlFromAccount = toFiniteNumber(account?.total_pnl);
+    const unrealizedFromAccount = toFiniteNumber(account?.unrealized_pnl);
+    const realizedFromAccount = toFiniteNumber(account?.realized_pnl);
+
+    const unrealized = unrealizedFromAccount ?? sumUnrealizedFromPositions(positions);
+    const inferredRealized = totalPnlFromAccount !== null
+        ? (totalPnlFromAccount - unrealized)
+        : sumRealizedFromTrades(trades);
+    const realized = realizedFromAccount ?? inferredRealized;
+    const totalPnl = totalPnlFromAccount ?? (realized + unrealized);
+
+    let initial = toFiniteNumber(account?.initial_balance);
+    if (initial === null) {
+        if (equity !== null && totalPnlFromAccount !== null) {
+            initial = equity - totalPnlFromAccount;
+        } else if (isTestMode) {
+            initial = toFiniteNumber(virtualAccount?.initial_balance, FIXED_INITIAL_BALANCE);
+        } else {
+            initial = wallet ?? FIXED_INITIAL_BALANCE;
+        }
+    }
+
+    let realtimeBalance = equity;
+    if (realtimeBalance === null) {
+        if (wallet !== null) {
+            realtimeBalance = wallet + unrealized;
+        } else {
+            realtimeBalance = initial + totalPnl;
+        }
+    }
+
+    return {
+        initial,
+        realized,
+        unrealized,
+        totalPnl,
+        realtimeBalance,
+        source: equity !== null ? 'account' : 'derived'
+    };
 }
 
 function updateRealtimeBalance({ account, system, virtualAccount, chartData, positions = [], trades = [] }) {
@@ -1090,36 +1135,18 @@ function updateRealtimeBalance({ account, system, virtualAccount, chartData, pos
         setTxt('account-realtime-unrealized', '--');
         return null;
     }
-    const { realized, unrealized, realtimeBalance } = snapshot;
-    const displayInitial = FIXED_INITIAL_BALANCE;
-    const pnlAmount = realized;
-    const currentBalanceDisplay = displayInitial + pnlAmount;
+    const { initial, realized, unrealized, totalPnl, realtimeBalance } = snapshot;
+    const currentBalanceDisplay = realtimeBalance;
 
     setTxt('account-realtime-balance', fmt(currentBalanceDisplay));
+    setTxt('account-realtime-initial', fmt(initial));
+    setTxt('account-realtime-realized', fmt(realized));
+    setTxt('account-realtime-unrealized', fmt(unrealized));
     setTxt('acc-pnl', fmt(realized));
     setTxt('total-unrealized-pnl', fmt(unrealized));
     setPnlClass('acc-pnl', realized);
     setPnlClass('total-unrealized-pnl', unrealized);
-    setPnlClass('account-realtime-balance', realized);
-
-
-    // ✅ 始终同步 EQUITY 和 Current Balance，确保两者一致
-    setTxt('acc-equity', fmt(currentBalanceDisplay));
-    setTxt('header-equity', fmt(currentBalanceDisplay));
-
-    const pnlPctElement = document.getElementById('account-total-pnl-pct');
-    if (pnlPctElement && displayInitial > 0) {
-        const pnlPct = (pnlAmount / displayInitial) * 100;
-        pnlPctElement.textContent = `${pnlPct.toFixed(2)}%`;
-        pnlPctElement.classList.remove('pos', 'neg', 'neutral');
-        if (pnlPct > 0) {
-            pnlPctElement.classList.add('pos');
-        } else if (pnlPct < 0) {
-            pnlPctElement.classList.add('neg');
-        } else {
-            pnlPctElement.classList.add('neutral');
-        }
-    }
+    setPnlClass('account-realtime-balance', totalPnl);
 
     return snapshot;
 }
