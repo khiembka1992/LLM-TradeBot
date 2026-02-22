@@ -30,6 +30,23 @@ def test_breakout_uses_dynamic_volume_threshold():
     assert res["volume_threshold"] <= 0.9
 
 
+def test_breakout_sensitivity_changes_trigger_strictness():
+    detector = TriggerDetector()
+    df = _df(
+        [
+            {"open": 100.0, "high": 101.0, "low": 99.5, "close": 100.5, "volume": 100.0},
+            {"open": 100.5, "high": 101.5, "low": 100.0, "close": 101.2, "volume": 100.0},
+            {"open": 101.2, "high": 102.0, "low": 100.8, "close": 101.8, "volume": 100.0},
+            {"open": 101.8, "high": 103.0, "low": 101.8, "close": 102.3, "volume": 95.0},
+        ]
+    )
+    loose = detector.detect_breakout(df, direction="long", sensitivity=0.9)
+    strict = detector.detect_breakout(df, direction="long", sensitivity=1.1)
+
+    assert loose["detected"]
+    assert not strict["detected"]
+
+
 def test_continuation_trigger_detected_for_trend_resume():
     detector = TriggerDetector()
     df = _df(

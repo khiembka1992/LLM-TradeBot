@@ -257,6 +257,9 @@ class MultiAgentTradingBot:
         self.selector_interval_sec = 10 * 60
         self.selector_last_run = 0.0
         self.selector_startup_done = False
+        self.layer4_wait_streak = 0
+        self.layer4_trigger_streak = 0
+        self.layer4_adaptive_state: Dict[str, Dict[str, int]] = {}
 
         # Cycle logging (DB)
         self._cycle_logger = None
@@ -631,6 +634,57 @@ class MultiAgentTradingBot:
         selector.min_quote_volume_per_usdt = float(
             selector_params.get("min_quote_volume_per_usdt", selector.min_quote_volume_per_usdt)
         )
+
+    def _get_trigger_state_key(self, symbol: str, trend_1h: str) -> str:
+        return f"{str(symbol or 'UNKNOWN').upper()}::{str(trend_1h or 'neutral').lower()}"
+
+    def _get_trigger_sensitivity(self, *, symbol: str, trend_1h: str, adx: float, strong_trend_alignment: bool) -> float:
+        """
+        Adaptive trigger sensitivity for Layer4.
+        <1.0 => easier trigger (after long wait), >1.0 => stricter trigger.
+        """
+        key = self._get_trigger_state_key(symbol, trend_1h)
+        state = self.layer4_adaptive_state.get(key, {})
+        wait_streak = int(state.get('wait_streak', 0) or 0)
+        trigger_streak = int(state.get('trigger_streak', 0) or 0)
+
+        sensitivity = 1.0
+        if wait_streak >= 16:
+            sensitivity = 0.82
+        elif wait_streak >= 10:
+            sensitivity = 0.88
+        elif wait_streak >= 6:
+            sensitivity = 0.94
+
+        if strong_trend_alignment and adx >= 28:
+            sensitivity = min(sensitivity, 0.9)
+
+        # If triggers are firing too frequently, slightly tighten.
+        if trigger_streak >= 4 and wait_streak == 0:
+            sensitivity = min(1.08, sensitivity + 0.06)
+
+        return max(0.78, min(1.12, float(sensitivity)))
+
+    def _update_trigger_adaptive_state(self, *, symbol: str, trend_1h: str, layer4_pass: bool) -> Dict[str, int]:
+        """Track per-symbol per-direction Layer4 streaks for adaptive sensitivity."""
+        key = self._get_trigger_state_key(symbol, trend_1h)
+        state = self.layer4_adaptive_state.get(key, {"wait_streak": 0, "trigger_streak": 0})
+        wait_streak = int(state.get("wait_streak", 0) or 0)
+        trigger_streak = int(state.get("trigger_streak", 0) or 0)
+
+        if layer4_pass:
+            trigger_streak = min(50, trigger_streak + 1)
+            wait_streak = 0
+        else:
+            wait_streak = min(200, wait_streak + 1)
+            trigger_streak = 0
+
+        updated = {"wait_streak": wait_streak, "trigger_streak": trigger_streak}
+        self.layer4_adaptive_state[key] = updated
+        # Keep compatibility counters for legacy logging/inspection.
+        self.layer4_wait_streak = wait_streak
+        self.layer4_trigger_streak = trigger_streak
+        return updated
 
     def _run_symbol_selector(self, reason: str = "scheduled") -> None:
         """Run symbol selector and update symbols (AUTO1/AUTO3)."""
@@ -2867,10 +2921,21 @@ class MultiAgentTradingBot:
                         trigger_detector = TriggerDetector()
 
                         df_5m = processed_dfs['5m']
-                        trigger_result = trigger_detector.detect_trigger(df_5m, direction=trend_1h)
+                        trigger_sensitivity = self._get_trigger_sensitivity(
+                            symbol=self.current_symbol,
+                            trend_1h=trend_1h,
+                            adx=float(adx_value or 0),
+                            strong_trend_alignment=strong_trend_alignment
+                        )
+                        trigger_result = trigger_detector.detect_trigger(
+                            df_5m,
+                            direction=trend_1h,
+                            sensitivity=trigger_sensitivity
+                        )
                         four_layer_result['trigger_pattern'] = trigger_result.get('pattern_type') or 'None'
                         rvol = trigger_result.get('rvol', 1.0)
                         four_layer_result['trigger_rvol'] = rvol
+                        four_layer_result['trigger_sensitivity'] = trigger_sensitivity
 
                         if rvol < 0.5:
                             log.warning(f"⚠️ Low Volume Warning (RVOL {rvol:.1f}x < 0.5) - Trend validation may be unreliable")
@@ -2937,11 +3002,28 @@ class MultiAgentTradingBot:
                             four_layer_result['trigger_pattern'] = trigger_result['pattern_type']
                             log.info(f"✅ Layer 4 PASS: Sentiment {sentiment_score:.0f}, Trigger={trigger_result['pattern_type']}")
                             log.info(f"🎯 ALL LAYERS PASSED: {trend_1h.upper()} with {70 + four_layer_result['confidence_boost']}% confidence")
+
+                        adaptive_state = self._update_trigger_adaptive_state(
+                            symbol=self.current_symbol,
+                            trend_1h=trend_1h,
+                            layer4_pass=bool(four_layer_result.get('layer4_pass'))
+                        )
+                        four_layer_result['layer4_wait_streak'] = adaptive_state.get('wait_streak', 0)
+                        four_layer_result['layer4_trigger_streak'] = adaptive_state.get('trigger_streak', 0)
+                        four_layer_result['layer4_state_key'] = self._get_trigger_state_key(self.current_symbol, trend_1h)
                     else:
                         four_layer_result['trigger_pattern'] = 'disabled'
                         four_layer_result['trigger_rvol'] = None
                         four_layer_result['layer4_pass'] = True
                         four_layer_result['final_action'] = trend_1h
+                        adaptive_state = self._update_trigger_adaptive_state(
+                            symbol=self.current_symbol,
+                            trend_1h=trend_1h,
+                            layer4_pass=True
+                        )
+                        four_layer_result['layer4_wait_streak'] = adaptive_state.get('wait_streak', 0)
+                        four_layer_result['layer4_trigger_streak'] = adaptive_state.get('trigger_streak', 0)
+                        four_layer_result['layer4_state_key'] = self._get_trigger_state_key(self.current_symbol, trend_1h)
                         log.info("⏭️ Layer 4 SKIP: TriggerDetectorAgent disabled")
 
         global_state.four_layer_result = four_layer_result

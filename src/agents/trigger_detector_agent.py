@@ -98,7 +98,7 @@ class TriggerDetector:
             }
         }
     
-    def detect_breakout(self, df_5m: pd.DataFrame, direction: str = 'long') -> Dict:
+    def detect_breakout(self, df_5m: pd.DataFrame, direction: str = 'long', sensitivity: float = 1.0) -> Dict:
         """
         Detect Volume Breakout (放量突破)
         
@@ -138,11 +138,13 @@ class TriggerDetector:
             breakout_level = prev_3['low'].min()
             price_breakout = curr['close'] < breakout_level
         
+        sens = max(0.75, min(1.2, float(sensitivity or 1.0)))
         # 动态量能阈值: 趋势延续阶段允许更低确认门槛
         avg_prev_range = (prev_3['high'] - prev_3['low']).mean()
         curr_range = max(float(curr['high'] - curr['low']), 0.0)
         range_ratio = (curr_range / avg_prev_range) if avg_prev_range > 0 else 1.0
-        volume_threshold = 0.85 if range_ratio >= 0.9 else 1.0
+        volume_threshold = (0.85 if range_ratio >= 0.9 else 1.0) * sens
+        volume_threshold = max(0.7, min(1.2, volume_threshold))
         volume_confirm = volume_ratio >= volume_threshold
         
         detected = price_breakout and volume_confirm
@@ -157,19 +159,20 @@ class TriggerDetector:
             'pattern': 'breakout',
             'breakout_level': breakout_level,
             'volume_ratio': volume_ratio,
-            'volume_threshold': volume_threshold,
+            'volume_threshold': float(volume_threshold),
             'current_price': curr['close'],
             'current_volume': curr['volume'],
             'vol_ma3': vol_ma3
         }
 
-    def detect_continuation(self, df_5m: pd.DataFrame, direction: str = 'long') -> Dict:
+    def detect_continuation(self, df_5m: pd.DataFrame, direction: str = 'long', sensitivity: float = 1.0) -> Dict:
         """
         Detect trend continuation pattern (break-retest-resume style).
         """
         if len(df_5m) < 8:
             return {'detected': False, 'pattern': None}
 
+        sens = max(0.75, min(1.2, float(sensitivity or 1.0)))
         curr = df_5m.iloc[-1]
         prev_1 = df_5m.iloc[-2]
         prev_2 = df_5m.iloc[-3]
@@ -187,19 +190,20 @@ class TriggerDetector:
         close_5ago = float(df_5m['close'].iloc[-6]) if len(df_5m) >= 6 else float(prev_2['close'])
         rvol = self.calculate_rvol(df_5m, lookback=8)
 
+        structure_tolerance = max(0.985, min(1.01, 0.995 - (1.0 - sens) * 0.02))
         if direction == 'long':
             trend_bias = float(prev_1['close']) > close_5ago
             resumed = float(curr['close']) > float(curr['open']) and float(curr['close']) >= float(prev_1['close'])
-            structure_ok = float(curr['close']) >= swing_high * 0.995
+            structure_ok = float(curr['close']) >= swing_high * structure_tolerance
         else:
             trend_bias = float(prev_1['close']) < close_5ago
             resumed = float(curr['close']) < float(curr['open']) and float(curr['close']) <= float(prev_1['close'])
-            structure_ok = float(curr['close']) <= swing_low * 1.005
+            structure_ok = float(curr['close']) <= swing_low * (2 - structure_tolerance)
 
-        volatility_ok = True if avg_range <= 0 else (curr_range >= avg_range * 0.7)
-        volume_ok = (float(curr['volume']) >= avg_volume * 0.8) if avg_volume > 0 else True
-        momentum_ok = body_ratio >= 0.35
-        rvol_ok = rvol >= 0.7
+        volatility_ok = True if avg_range <= 0 else (curr_range >= avg_range * (0.7 * sens))
+        volume_ok = (float(curr['volume']) >= avg_volume * (0.8 * sens)) if avg_volume > 0 else True
+        momentum_ok = body_ratio >= (0.35 * sens)
+        rvol_ok = rvol >= (0.7 * sens)
         detected = bool(trend_bias and resumed and structure_ok and volatility_ok and momentum_ok and (volume_ok or rvol_ok))
 
         if detected:
@@ -217,8 +221,8 @@ class TriggerDetector:
             'volume_ok': volume_ok,
             'volatility_ok': volatility_ok
         }
-    
-    def detect_trigger(self, df_5m: pd.DataFrame, direction: str = 'long') -> Dict:
+
+    def detect_trigger(self, df_5m: pd.DataFrame, direction: str = 'long', sensitivity: float = 1.0) -> Dict:
         """
         Detect any trigger pattern (Engulfing OR Breakout)
         
@@ -238,10 +242,10 @@ class TriggerDetector:
         engulfing_result = self.detect_engulfing(df_5m, direction)
         
         # Check breakout
-        breakout_result = self.detect_breakout(df_5m, direction)
-        
+        breakout_result = self.detect_breakout(df_5m, direction, sensitivity=sensitivity)
+
         # Check continuation
-        continuation_result = self.detect_continuation(df_5m, direction)
+        continuation_result = self.detect_continuation(df_5m, direction, sensitivity=sensitivity)
 
         # 🆕 Calculate RVOL (Relative Volume vs 10-period average)
         rvol = self.calculate_rvol(df_5m)
@@ -268,7 +272,7 @@ class TriggerDetector:
                 'rvol': max(rvol, continuation_result.get('rvol', rvol))
             }
         # RVOL fallback: require basic momentum quality to avoid chop false-triggers
-        elif rvol >= 0.65:
+        elif rvol >= (0.65 * max(0.75, min(1.2, float(sensitivity or 1.0)))):
             # 检查价格动量 (当前K线方向与交易方向一致)
             if len(df_5m) >= 2:
                 curr = df_5m.iloc[-1]
