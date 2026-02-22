@@ -20,7 +20,7 @@ Updated: 2026-01-10 (Two-stage selection)
 
 import asyncio
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Dict, Optional
 import threading
@@ -436,7 +436,10 @@ class SymbolSelectorAgent:
                 change_pct = ((end_price - start_price) / start_price) * 100
                 recent_volume = sum(k.get('volume', 0.0) for k in recent)
                 prev_volume = sum(k.get('volume', 0.0) for k in previous) if previous else 0.0
-                volume_ratio = (recent_volume / prev_volume) if prev_volume > 0 else 1.0
+                recent_volume_avg = (recent_volume / len(recent)) if recent else 0.0
+                prev_volume_avg = (prev_volume / len(previous)) if previous else 0.0
+                # Compare per-bar volume to avoid window-size bias (recent window vs larger history window).
+                volume_ratio = (recent_volume_avg / prev_volume_avg) if prev_volume_avg > 0 else 1.0
                 
                 day_change_pct = 0.0
                 if ticker_map and ticker_map.get(symbol):
@@ -460,6 +463,11 @@ class SymbolSelectorAgent:
                 direction = 1 if change_pct > 0 else (-1 if change_pct < 0 else 0)
                 recent_closes = [float(k.get("close", 0.0) or 0.0) for k in recent]
                 consistency = self._compute_directional_consistency(recent_closes, direction)
+                path_distance = 0.0
+                for i in range(1, len(recent_closes)):
+                    path_distance += abs(recent_closes[i] - recent_closes[i - 1])
+                net_distance = abs(end_price - start_price)
+                path_efficiency = (net_distance / path_distance) if path_distance > 0 else 0.0
 
                 closes_15m = [float(k.get("close", 0.0) or 0.0) for k in klines_15m]
                 closes_1h = [float(k.get("close", 0.0) or 0.0) for k in klines_1h]
@@ -482,6 +490,8 @@ class SymbolSelectorAgent:
                     alignment_score=alignment_score,
                     day_change_pct=day_change_pct
                 )
+                # Prefer clean directional pushes over noisy chop with same % change.
+                score *= (0.75 + max(0.0, min(1.0, path_efficiency)) * 0.5)
                 exhausted = False
                 if direction > 0 and rsi_15m >= 72:
                     exhausted = True
@@ -501,6 +511,7 @@ class SymbolSelectorAgent:
                     "adx_1h": adx_1h,
                     "day_change_pct": day_change_pct,
                     "consistency": consistency,
+                    "path_efficiency": path_efficiency,
                     "alignment_score": alignment_score,
                     "rsi_15m": rsi_15m,
                     "score": score,
@@ -627,7 +638,7 @@ class SymbolSelectorAgent:
             log_selection(down_label, best_down, is_strong)
 
         self.last_auto1 = {
-            "timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
             "window_minutes": window_minutes,
             "threshold_pct": threshold_pct,
             "volume_ratio_threshold": volume_ratio_threshold,

@@ -98,6 +98,39 @@ class DummyBinanceClient:
         return data[-limit:]
 
 
+class DummyVolumeBiasClient:
+    def __init__(self, *args, **kwargs):
+        base_1m = _build_klines(
+            [1.0 + 0.001 * i for i in range(120)],
+            [100.0] * 90 + [100.0] * 30,
+        )
+        base_15m = _build_klines(
+            [1.0 + 0.008 * i for i in range(80)],
+            [800.0 + i * 3 for i in range(80)],
+        )
+        base_1h = _build_klines(
+            [1.0 + 0.02 * i for i in range(80)],
+            [1500.0 + i * 4 for i in range(80)],
+        )
+        self._series = {
+            "AAAUSDT": {"1m": base_1m, "15m": base_15m, "1h": base_1h},
+        }
+
+    def get_all_tickers(self):
+        return [
+            {
+                "symbol": "AAAUSDT",
+                "quoteVolume": "25000000",
+                "lastPrice": "1.12",
+                "priceChangePercent": "5.0",
+            }
+        ]
+
+    def get_klines(self, symbol: str, interval: str, limit: int = 500, start_time: int = None):
+        data = self._series[symbol][interval]
+        return data[-limit:]
+
+
 def test_timeframe_alignment_bias():
     selector = SymbolSelectorAgent()
     up_closes = [1.0 + 0.01 * i for i in range(90)]
@@ -154,3 +187,28 @@ def test_auto1_prefers_clear_up_and_down_candidates(monkeypatch):
     assert "AAAUSDT" in selected
     assert "BBBUSDT" in selected
     assert "CCCUSDT" not in selected
+
+
+def test_auto1_volume_ratio_uses_per_bar_average(monkeypatch):
+    import src.api.binance_client as binance_client_module
+
+    monkeypatch.setattr(binance_client_module, "BinanceClient", DummyVolumeBiasClient)
+    selector = SymbolSelectorAgent()
+
+    selected = asyncio.run(
+        selector.select_auto1_recent_momentum(
+            candidates=["AAAUSDT"],
+            window_minutes=30,
+            interval="1m",
+            threshold_pct=0.2,
+            volume_ratio_threshold=0.9,
+            min_adx=10,
+            min_directional_score=0.1,
+            min_alignment_score=-0.5,
+            relax_factor=0.8,
+        )
+    )
+
+    assert selected == ["AAAUSDT"]
+    result = selector.last_auto1["results"]["AAAUSDT"]
+    assert result["volume_ratio"] == 1.0
