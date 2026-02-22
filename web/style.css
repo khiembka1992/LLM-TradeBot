@@ -880,8 +880,10 @@ table {
 
 /* 交易历史表格样式 */
 #trade-table {
+    width: 100%;
     min-width: 880px;
     table-layout: fixed;
+    border-collapse: collapse;
 }
 
 #trade-table th,
@@ -2318,7 +2320,7 @@ tr:first-child td {
     pointer-events: none;
 }
 
-.agent-flow-container > *:not(.flow-beams) {
+.agent-flow-container>*:not(.flow-beams) {
     position: relative;
     z-index: 1;
 }
@@ -3089,6 +3091,7 @@ tr:first-child td {
 }
 
 @keyframes beamGlow {
+
     0%,
     100% {
         opacity: 0.35;
@@ -3481,7 +3484,7 @@ tr:first-child td {
    ======================================== */
 
 .row-charts-account {
-    grid-column: 1 / -1;
+    width: 100%;
     margin-bottom: 20px;
     min-height: 0;
 }
@@ -3737,7 +3740,7 @@ tr:first-child td {
     z-index: 0;
 }
 
-.pnl-curve-card > * {
+.pnl-curve-card>* {
     position: relative;
     z-index: 1;
 }

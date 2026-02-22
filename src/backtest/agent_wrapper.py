@@ -327,7 +327,7 @@ class BacktestAgentRunner:
             df_1h = snapshot.stable_1h
             if df_1h is not None and len(df_1h) > 5:
                 try:
-                    from src.agents.position_analyzer import PositionAnalyzer
+                    from src.agents.position_analyzer_agent import PositionAnalyzer
                     analyzer = PositionAnalyzer()
                     position_1h = analyzer.analyze_position(
                         df_1h,

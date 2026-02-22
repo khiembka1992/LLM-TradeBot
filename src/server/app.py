@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 import secrets
 import json
+import inspect
 from typing import Optional, Dict, List, Any
 from dataclasses import asdict
 from pathlib import Path
@@ -379,7 +380,6 @@ async def control_bot(cmd: ControlCommand, authenticated: bool = Depends(verify_
             global_state.demo_expired = False
             global_state.demo_start_time = None
         
-        global_state.execution_mode = "Running"
         if was_stopped:
             global_state.cycle_counter = 0
             global_state.current_cycle_id = ""
@@ -388,7 +388,39 @@ async def control_bot(cmd: ControlCommand, authenticated: bool = Depends(verify_
             global_state.trade_history = []
             global_state.decision_history = []
             global_state.balance_history = []
+            switch_handler = getattr(global_state, "mode_switch_handler", None)
+            if callable(switch_handler):
+                current_mode = "test" if global_state.is_test_mode else "live"
+                try:
+                    param_count = len(inspect.signature(switch_handler).parameters)
+                except Exception:
+                    param_count = 1
+                try:
+                    if param_count >= 2:
+                        switch_handler(current_mode, True)
+                    else:
+                        switch_handler(current_mode)
+                except RuntimeError as e:
+                    raise HTTPException(status_code=409, detail=str(e))
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+                except Exception as e:
+                    raise HTTPException(status_code=500, detail=f"Failed to initialize account on start: {e}")
+            elif global_state.is_test_mode:
+                # Fallback when runtime bot handler is not ready yet.
+                global_state.virtual_initial_balance = 1000.0
+                global_state.virtual_balance = 1000.0
+                global_state.virtual_positions = {}
+                global_state.cumulative_realized_pnl = 0.0
+                global_state.init_balance(global_state.virtual_balance, initial_balance=global_state.virtual_initial_balance)
+                global_state.update_account(
+                    equity=global_state.virtual_balance,
+                    available=global_state.virtual_balance,
+                    wallet=global_state.virtual_balance,
+                    pnl=0.0
+                )
             global_state.add_log("🔁 Cycle counter reset after stop (history cleared)")
+        global_state.execution_mode = "Running"
         global_state.add_log("▶️ System Resumed by User")
         
     elif action == "pause":

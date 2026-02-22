@@ -642,6 +642,7 @@ class BacktestEngine:
                 'oscillator_scores': osc_scores,
                 'trend_scores': decision.get('trend_scores')
             }
+            audit_decision.update(self._get_symbol_trade_stats(symbol))
 
             audit_result = await self.risk_audit.audit_decision(
                 decision=audit_decision,
@@ -683,6 +684,81 @@ class BacktestEngine:
                     take_profit_pct=tp_pct,
                     trailing_stop_pct=trailing_pct
                 )
+
+    def _get_symbol_trade_stats(self, symbol: str, max_trades: int = 5) -> Dict:
+        """Build symbol-level and direction-level recent trade stats from backtest history."""
+        if not self.portfolio:
+            return {}
+
+        trades = getattr(self.portfolio, 'trades', []) or []
+        closed_for_symbol = []
+        for trade in reversed(trades):
+            if getattr(trade, 'symbol', None) != symbol:
+                continue
+            if getattr(trade, 'action', None) != 'close':
+                continue
+            closed_for_symbol.append(trade)
+
+        def _calc_bucket_stats(bucket: List[Trade]) -> Dict[str, Optional[float]]:
+            pnls = []
+            for trade in bucket:
+                try:
+                    pnls.append(float(getattr(trade, 'pnl', 0.0)))
+                except Exception:
+                    continue
+
+            loss_streak = 0
+            for value in pnls:
+                if value < 0:
+                    loss_streak += 1
+                else:
+                    break
+
+            recent = pnls[:max_trades]
+            recent_count = len(recent)
+            recent_pnl = float(sum(recent)) if recent else 0.0
+            wins = sum(1 for value in recent if value > 0)
+            win_rate = (wins / recent_count) if recent_count > 0 else None
+            return {
+                'loss_streak': loss_streak,
+                'recent_pnl': recent_pnl,
+                'recent_trades': recent_count,
+                'win_rate': win_rate,
+            }
+
+        def _trade_side_value(trade: Trade) -> str:
+            side = getattr(trade, 'side', None)
+            if isinstance(side, Side):
+                return side.value
+            side_str = str(side or '').lower()
+            if side_str.endswith('long'):
+                return 'long'
+            if side_str.endswith('short'):
+                return 'short'
+            return side_str
+
+        all_stats = _calc_bucket_stats(closed_for_symbol)
+        long_stats = _calc_bucket_stats(
+            [trade for trade in closed_for_symbol if _trade_side_value(trade) == 'long']
+        )
+        short_stats = _calc_bucket_stats(
+            [trade for trade in closed_for_symbol if _trade_side_value(trade) == 'short']
+        )
+
+        return {
+            'symbol_loss_streak': all_stats['loss_streak'],
+            'symbol_recent_pnl': all_stats['recent_pnl'],
+            'symbol_recent_trades': all_stats['recent_trades'],
+            'symbol_win_rate': all_stats['win_rate'],
+            'symbol_long_loss_streak': long_stats['loss_streak'],
+            'symbol_long_recent_pnl': long_stats['recent_pnl'],
+            'symbol_long_recent_trades': long_stats['recent_trades'],
+            'symbol_long_win_rate': long_stats['win_rate'],
+            'symbol_short_loss_streak': short_stats['loss_streak'],
+            'symbol_short_recent_pnl': short_stats['recent_pnl'],
+            'symbol_short_recent_trades': short_stats['recent_trades'],
+            'symbol_short_win_rate': short_stats['win_rate'],
+        }
     
     async def _close_all_positions(self):
         """平仓所有持仓"""

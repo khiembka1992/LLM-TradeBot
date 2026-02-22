@@ -3114,6 +3114,16 @@ class MultiAgentTradingBot:
         market_snapshot: Any
     ) -> Dict[str, Any]:
         """Run order execution stage (test/live) with unified lifecycle events."""
+        veto_reason = self._get_position_1h_veto_reason(order_params)
+        if veto_reason:
+            global_state.add_log(f"[🛡️ EXECUTION_VETO] {veto_reason}")
+            return {
+                'status': 'blocked',
+                'action': order_params.get('action', vote_result.action),
+                'details': {'reason': veto_reason, 'stage': 'execution_gate'},
+                'current_price': current_price
+            }
+
         self._emit_runtime_event(
             run_id=run_id,
             stream="lifecycle",
@@ -3143,6 +3153,79 @@ class MultiAgentTradingBot:
             account_balance=account_balance,
             market_snapshot=market_snapshot
         )
+
+    def _get_position_1h_veto_reason(self, order_params: Dict[str, Any]) -> Optional[str]:
+        """Final safety gate for opening actions based on 1h position permission."""
+        action = normalize_action(order_params.get('action'))
+        if not is_open_action(action):
+            return None
+
+        pos_1h = order_params.get('position_1h')
+        if not isinstance(pos_1h, dict):
+            return None
+
+        allow_long = pos_1h.get('allow_long')
+        allow_short = pos_1h.get('allow_short')
+        location = pos_1h.get('location', 'unknown')
+        position_pct = pos_1h.get('position_pct')
+        location_txt = f"1h位置={location}"
+        if isinstance(position_pct, (int, float)):
+            location_txt = f"{location_txt}({position_pct:.1f}%)"
+
+        if action == 'open_long' and allow_long is False:
+            if not self._allow_position_1h_override(order_params, action):
+                return f"{location_txt} 禁止做多(allow_long=False)"
+        if action == 'open_short' and allow_short is False:
+            if not self._allow_position_1h_override(order_params, action):
+                return f"{location_txt} 禁止做空(allow_short=False)"
+        return None
+
+    def _allow_position_1h_override(self, order_params: Dict[str, Any], action: str) -> bool:
+        """Rare breakout override for execution gate, aligned with RiskAuditAgent."""
+        regime_name = str((order_params.get('regime') or {}).get('regime', '')).lower()
+        if any(k in regime_name for k in ('sideways', 'consolidation', 'choppy', 'range', 'directionless')):
+            return False
+
+        confidence = order_params.get('confidence', 0)
+        try:
+            confidence = float(confidence)
+        except Exception:
+            confidence = 0.0
+        if confidence < 92:
+            return False
+
+        pos_1h = order_params.get('position_1h')
+        if not isinstance(pos_1h, dict):
+            return False
+        location = str(pos_1h.get('location', '')).lower()
+        pos_pct = pos_1h.get('position_pct')
+        if not isinstance(pos_pct, (int, float)):
+            return False
+
+        trend_scores = order_params.get('trend_scores') if isinstance(order_params.get('trend_scores'), dict) else {}
+        t_1h = trend_scores.get('trend_1h_score')
+        t_15m = trend_scores.get('trend_15m_score')
+        t_5m = trend_scores.get('trend_5m_score')
+        if not all(isinstance(v, (int, float)) for v in (t_1h, t_15m, t_5m)):
+            return False
+
+        if action == 'open_long':
+            return (
+                location in {'upper', 'resistance'}
+                and pos_pct >= 70
+                and t_1h >= 55
+                and t_15m >= 25
+                and t_5m >= 10
+            )
+        if action == 'open_short':
+            return (
+                location in {'support', 'lower'}
+                and pos_pct <= 30
+                and t_1h <= -55
+                and t_15m <= -25
+                and t_5m <= -10
+            )
+        return False
 
     def _execute_test_mode_order(
         self,
@@ -3934,11 +4017,9 @@ class MultiAgentTradingBot:
     def _get_symbol_trade_stats(self, symbol: str, max_trades: int = 5) -> Dict:
         """Summarize recent closed trades for symbol to support risk filters."""
         history = global_state.trade_history or []
-        loss_streak = 0
-        loss_streak_active = True
-        recent_pnl = 0.0
-        recent_count = 0
-        recent_wins = 0
+        closed_pnls: List[float] = []
+        long_pnls: List[float] = []
+        short_pnls: List[float] = []
 
         for trade in history:
             if trade.get('symbol') != symbol:
@@ -3964,27 +4045,45 @@ class MultiAgentTradingBot:
             except Exception:
                 continue
 
-            if loss_streak_active:
-                if pnl_value < 0:
+            closed_pnls.append(pnl_value)
+            normalized_action = normalize_action(str(trade.get('action', '')).lower())
+            if normalized_action == 'open_long':
+                long_pnls.append(pnl_value)
+            elif normalized_action == 'open_short':
+                short_pnls.append(pnl_value)
+
+        def _calc_bucket_stats(pnls: List[float]) -> Tuple[int, float, int, Optional[float]]:
+            loss_streak = 0
+            for value in pnls:
+                if value < 0:
                     loss_streak += 1
                 else:
-                    loss_streak_active = False
+                    break
 
-            if recent_count < max_trades:
-                recent_pnl += pnl_value
-                recent_count += 1
-                if pnl_value > 0:
-                    recent_wins += 1
+            recent = pnls[:max_trades]
+            recent_count = len(recent)
+            recent_pnl = float(sum(recent)) if recent else 0.0
+            wins = sum(1 for value in recent if value > 0)
+            win_rate = (wins / recent_count) if recent_count > 0 else None
+            return loss_streak, recent_pnl, recent_count, win_rate
 
-            if not loss_streak_active and recent_count >= max_trades:
-                break
+        loss_streak, recent_pnl, recent_count, win_rate = _calc_bucket_stats(closed_pnls)
+        long_loss_streak, long_recent_pnl, long_recent_count, long_win_rate = _calc_bucket_stats(long_pnls)
+        short_loss_streak, short_recent_pnl, short_recent_count, short_win_rate = _calc_bucket_stats(short_pnls)
 
-        win_rate = (recent_wins / recent_count) if recent_count > 0 else None
         return {
             'symbol_loss_streak': loss_streak,
             'symbol_recent_pnl': recent_pnl,
             'symbol_recent_trades': recent_count,
-            'symbol_win_rate': win_rate
+            'symbol_win_rate': win_rate,
+            'symbol_long_loss_streak': long_loss_streak,
+            'symbol_long_recent_pnl': long_recent_pnl,
+            'symbol_long_recent_trades': long_recent_count,
+            'symbol_long_win_rate': long_win_rate,
+            'symbol_short_loss_streak': short_loss_streak,
+            'symbol_short_recent_pnl': short_recent_pnl,
+            'symbol_short_recent_trades': short_recent_count,
+            'symbol_short_win_rate': short_win_rate,
         }
 
     def _get_open_trade_meta(self, symbol: str) -> Optional[Dict]:
@@ -4261,6 +4360,11 @@ class MultiAgentTradingBot:
             current_price = 0.0
         if current_price <= 0:
             return {'status': 'failed', 'action': action, 'details': {'error': 'invalid_price'}}
+
+        veto_reason = self._get_position_1h_veto_reason(order_params)
+        if veto_reason:
+            global_state.add_log(f"[🛡️ EXECUTION_VETO] {suggestion_symbol} {action}: {veto_reason}")
+            return {'status': 'blocked', 'action': action, 'details': {'reason': veto_reason, 'stage': 'suggested_execution_gate'}}
 
         if self.test_mode:
             side = 'LONG' if action == 'open_long' else 'SHORT'
@@ -4748,17 +4852,17 @@ class MultiAgentTradingBot:
             }
         return stats
 
-    def switch_runtime_mode(self, target_mode: str) -> Dict[str, Any]:
-        """Switch test/live mode at runtime. Safe path: switch while not Running."""
+    def switch_runtime_mode(self, target_mode: str, force_refresh: bool = False) -> Dict[str, Any]:
+        """Switch test/live mode at runtime, or force refresh current mode account state."""
         mode = (target_mode or "").strip().lower()
         if mode not in {"test", "live"}:
             raise ValueError("Invalid mode. Must be 'test' or 'live'.")
 
         current_mode = "test" if self.test_mode else "live"
-        if mode == current_mode:
+        if mode == current_mode and not force_refresh:
             return {"trading_mode": current_mode, "is_test_mode": self.test_mode}
 
-        if global_state.execution_mode == "Running":
+        if global_state.execution_mode == "Running" and not force_refresh:
             raise RuntimeError("Please stop or pause the bot before switching mode.")
 
         if mode == "test":
@@ -4782,7 +4886,10 @@ class MultiAgentTradingBot:
                 wallet=global_state.virtual_balance,
                 pnl=0.0
             )
-            global_state.add_log("🧪 Switched to TEST mode (paper account reset to $1000.00).")
+            if force_refresh and current_mode == "test":
+                global_state.add_log("🧪 TEST mode restarted (paper account reset to $1000.00).")
+            else:
+                global_state.add_log("🧪 Switched to TEST mode (paper account reset to $1000.00).")
             return {"trading_mode": "test", "is_test_mode": True}
 
         # mode == "live"
@@ -4834,7 +4941,10 @@ class MultiAgentTradingBot:
         global_state.update_account(equity=equity, available=avail, wallet=wallet, pnl=unrealized)
         global_state.init_balance(equity, initial_balance=equity)
         self._sync_open_positions_to_trade_history()
-        global_state.add_log("💰 Switched to LIVE mode.")
+        if force_refresh and current_mode == "live":
+            global_state.add_log("💰 LIVE mode restarted (account balance reloaded).")
+        else:
+            global_state.add_log("💰 Switched to LIVE mode.")
         return {
             "trading_mode": "live",
             "is_test_mode": False,
