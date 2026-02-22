@@ -818,11 +818,10 @@ body {
 
 /* Table Compact */
 .table-container {
-    overflow-y: scroll;
-    /* 始终显示滚动条 */
+    overflow-y: auto;
+    overflow-x: auto;
     flex: 1;
     max-height: 300px;
-    /* 表格最大高度 */
 }
 
 /* 表格滚动条样式 */
